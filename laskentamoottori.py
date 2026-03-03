@@ -6,9 +6,14 @@ MLB-vedonlyönnin todennäköisyyslaskuri (MVP)
 Lukee ottelutulokset SQLite-tietokannasta ja laskee
 yksinkertaisen todennäköisyysarvion kahdelle joukkueelle.
 
-Painotuslogiikka:
+Painotuslogiikka (ilman syöttäjädataa):
   - 70% yleinen voittoprosentti (koko kausi)
   - 30% keskinäiset ottelut (head-to-head)
+
+Painotuslogiikka (syöttäjä-ERA annettu):
+  - 60% yleinen voittoprosentti
+  - 20% keskinäiset ottelut (head-to-head)
+  - 20% ERA-vertailu (pienempi ERA = parempi syöttäjä)
 """
 
 import sqlite3
@@ -21,9 +26,17 @@ from pathlib import Path
 DB_POLKU = "mlb_historical.db"          # Tietokannan sijainti
 TAULU    = "ottelutulokset_2025"         # Käytettävä taulu
 
-# Painotukset todennäköisyyslaskennassa (summa = 1.0)
+# Painotukset ilman syöttäjädataa (summa = 1.0)
 PAINO_YLEINEN   = 0.70   # yleinen voittoprosentti koko kaudelta
 PAINO_H2H       = 0.30   # keskinäiset ottelut (head-to-head)
+
+# Painotukset kun ERA-data on käytettävissä (summa = 1.0)
+PAINO_YLEINEN_ERA = 0.60
+PAINO_H2H_ERA     = 0.20
+PAINO_ERA         = 0.20   # syöttäjän ERA-vertailu
+
+# ERA-referenssiarvo (MLB:n historiallinen keskiarvo ~4.20)
+ERA_REFERENSSI = 4.20
 
 
 # ---------------------------------------------------------------------------
@@ -137,15 +150,19 @@ def laske_todennakoisyys(
     vieras: str,
     df: pd.DataFrame | None = None,
     db_polku: str = DB_POLKU,
+    koti_era: float | None = None,
+    vieras_era: float | None = None,
 ) -> dict:
     """
     Laskee yksinkertaisen todennäköisyysarvion ottelulle koti vs. vieras.
 
     Parametrit:
-        koti     – kotijoukkueen nimi (täsmälleen kuten tietokannassa)
-        vieras   – vierasjoukkueen nimi
-        df       – valmiiksi ladattu DataFrame (valinnainen; jos None, ladataan itse)
-        db_polku – tietokannan polku (käytetään vain jos df=None)
+        koti       – kotijoukkueen nimi (täsmälleen kuten tietokannassa)
+        vieras     – vierasjoukkueen nimi
+        df         – valmiiksi ladattu DataFrame (valinnainen; jos None, ladataan itse)
+        db_polku   – tietokannan polku (käytetään vain jos df=None)
+        koti_era   – kotijoukkueen aloitussyöttäjän ERA (valinnainen)
+        vieras_era – vierasjoukkueen aloitussyöttäjän ERA (valinnainen)
 
     Palauttaa dict:
         {
@@ -157,6 +174,7 @@ def laske_todennakoisyys(
             "vieras_yleinen_vp":  float,
             "h2h_koti_vp":        float,
             "h2h_ottelut":        int,
+            "era_kaytossa":       bool,    # True jos ERA huomioitu laskennassa
         }
     """
     if df is None:
@@ -179,12 +197,38 @@ def laske_todennakoisyys(
     h2h_koti_vp, h2h_maara = laske_h2h_voittoprosentti(df, koti, vieras)
     h2h_vieras_vp = 1.0 - h2h_koti_vp
 
-    # --- 3. Painotettu yhdistelmä ---
-    koti_yhdistetty   = PAINO_YLEINEN * koti_norm   + PAINO_H2H * h2h_koti_vp
-    vieras_yhdistetty = PAINO_YLEINEN * vieras_norm + PAINO_H2H * h2h_vieras_vp
+    # --- 3. ERA-komponentti (jos molemmat ERA:t annettu) ---
+    era_kaytossa = (koti_era is not None) and (vieras_era is not None)
 
-    # Normalisoidaan viimeiset todennäköisyydet (pitäisi jo summautua ~1:een,
-    # mutta varmuuden vuoksi)
+    if era_kaytossa:
+        # Muunnetaan ERA todennäköisyydeksi: pienempi ERA = parempi syöttäjä.
+        # Käytetään käänteisarvoa suhteessa referenssiarvoon, klipattuna välille [0.2, 0.8]
+        # jotta yksittäinen poikkeuksellinen ERA ei dominoi liikaa.
+        koti_era_score   = max(0.2, min(0.8, ERA_REFERENSSI / (koti_era   + 0.01)))
+        vieras_era_score = max(0.2, min(0.8, ERA_REFERENSSI / (vieras_era + 0.01)))
+
+        # Normalisoidaan ERA-pisteet
+        era_summa = koti_era_score + vieras_era_score
+        koti_era_norm   = koti_era_score   / era_summa
+        vieras_era_norm = vieras_era_score / era_summa
+
+        # Painotettu yhdistelmä ERA:lla
+        koti_yhdistetty = (
+            PAINO_YLEINEN_ERA * koti_norm
+            + PAINO_H2H_ERA   * h2h_koti_vp
+            + PAINO_ERA       * koti_era_norm
+        )
+        vieras_yhdistetty = (
+            PAINO_YLEINEN_ERA * vieras_norm
+            + PAINO_H2H_ERA   * h2h_vieras_vp
+            + PAINO_ERA       * vieras_era_norm
+        )
+    else:
+        # Perinteinen laskenta ilman syöttäjädataa
+        koti_yhdistetty   = PAINO_YLEINEN * koti_norm   + PAINO_H2H * h2h_koti_vp
+        vieras_yhdistetty = PAINO_YLEINEN * vieras_norm + PAINO_H2H * h2h_vieras_vp
+
+    # Normalisoidaan lopulliset todennäköisyydet
     kokonais = koti_yhdistetty + vieras_yhdistetty
     koti_final   = koti_yhdistetty   / kokonais
     vieras_final = vieras_yhdistetty / kokonais
@@ -198,6 +242,7 @@ def laske_todennakoisyys(
         "vieras_yleinen_vp": round(vieras_yleinen, 4),
         "h2h_koti_vp":       round(h2h_koti_vp,  4),
         "h2h_ottelut":       h2h_maara,
+        "era_kaytossa":      era_kaytossa,
     }
 
 
