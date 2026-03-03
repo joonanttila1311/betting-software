@@ -45,11 +45,11 @@ def hae_ottelutulokset_api():
     
     # Tallennetaan SQLite-tietokantaan
     tietokanta_nimi = 'mlb_historical.db'
-    conn = sqlite3.connect(tietokanta_nimi)
+    yhteys = sqlite3.connect(tietokanta_nimi)
     taulun_nimi = f'ottelutulokset_{vuosi}'
     
-    df.to_sql(taulun_nimi, conn, if_exists='replace', index=False)
-    conn.close()
+    df.to_sql(taulun_nimi, yhteys, if_exists='replace', index=False)
+    yhteys.close()
     
     print(f"Data tallennettu tietokantaan: '{tietokanta_nimi}' tauluun '{taulun_nimi}'!")
     print("\nTässä ensimmäiset 5 peliä:")
