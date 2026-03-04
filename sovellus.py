@@ -1,11 +1,11 @@
 """
-sovellus.py  –  MLB Vedonlyönti-UI  v2.0
+app.py  –  MLB Vedonlyönti-UI  v3.0
 =====================================
 Streamlit-käyttöliittymä laskentamoottori.py:lle.
-Tukee nyt aloitussyöttäjän valintaa ja ERA-pohjaista laskentaa.
+Uutta v3.0:ssa: Juoksuodottama (Expected Runs) ja Over/Under -osio.
 
 Käynnistys:
-    streamlit run sovellus.py
+    streamlit run app.py
 """
 
 import sqlite3
@@ -116,6 +116,7 @@ st.markdown(
     }
     div.stButton > button:active { transform: translateY(0); }
 
+    /* ── Voittajakortit ── */
     .result-card {
         background: #141210;
         border: 1px solid #2e2a24;
@@ -192,6 +193,100 @@ st.markdown(
         border-radius: 2px !important;
     }
 
+    /* ── Over/Under -osion pääkortti ── */
+    .ou-section-title {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.28em;
+        color: #5a7a50;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .ou-total-card {
+        background: #0e1208;
+        border: 1px solid #2a3820;
+        border-radius: 6px;
+        padding: 1.6rem 1.4rem 1.2rem;
+        text-align: center;
+        margin-bottom: 0.8rem;
+    }
+    .ou-total-number {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 4.6rem;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        color: #7ec870;
+    }
+    .ou-total-unit {
+        font-family: 'Source Serif 4', serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.18em;
+        color: #4a6040;
+        text-transform: uppercase;
+        margin-top: 0.15rem;
+        margin-bottom: 1.1rem;
+    }
+    .ou-total-label {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 1.05rem;
+        letter-spacing: 0.16em;
+        color: #5a7a50;
+    }
+
+    /* ── Joukkueiden juoksukortit ── */
+    .ou-team-card {
+        background: #111309;
+        border: 1px solid #232d1a;
+        border-radius: 5px;
+        padding: 1.1rem 1.2rem;
+        text-align: center;
+    }
+    .ou-team-name {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 1.1rem;
+        letter-spacing: 0.07em;
+        color: #c8d4b8;
+        margin-bottom: 0.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .ou-team-role {
+        font-family: 'Source Serif 4', serif;
+        font-size: 0.65rem;
+        font-style: italic;
+        color: #3a4a2e;
+        letter-spacing: 0.1em;
+        margin-bottom: 0.7rem;
+    }
+    .ou-runs {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 2.6rem;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        color: #7ec870;
+        margin-bottom: 0.1rem;
+    }
+    .ou-runs-label {
+        font-family: 'Source Serif 4', serif;
+        font-size: 0.65rem;
+        letter-spacing: 0.14em;
+        color: #3a4a2e;
+        text-transform: uppercase;
+    }
+    .ou-stat-row {
+        font-family: 'Source Serif 4', serif;
+        font-size: 0.7rem;
+        color: #4a5c3e;
+        margin-top: 0.6rem;
+        font-style: italic;
+    }
+    .ou-stat-row span {
+        color: #7a9a6e;
+        font-style: normal;
+    }
+
+    /* ── Tietolaatikot ── */
     .info-box {
         background: #141210;
         border: 1px solid #2e2a24;
@@ -220,6 +315,20 @@ st.markdown(
     }
     .era-info-box b { color: #c8a84b; font-style: normal; }
 
+    .ou-note-box {
+        background: #0b0e08;
+        border: 1px solid #2a3820;
+        border-left: 3px solid #4a7040;
+        border-radius: 4px;
+        padding: 0.8rem 1.1rem;
+        margin-top: 0.8rem;
+        font-family: 'Source Serif 4', serif;
+        font-size: 0.8rem;
+        color: #4a5c3e;
+        font-style: italic;
+    }
+    .ou-note-box b { color: #7ec870; font-style: normal; }
+
     .warn-box {
         background: #1a1208;
         border: 1px solid #c8a84b44;
@@ -247,25 +356,23 @@ st.markdown(
 # ── Otsikko ───────────────────────────────────────────────────────────────
 st.markdown('<p class="main-title">⚾ MLB Odds Engine</p>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="main-subtitle">True Odds · Probability Model · MVP v2.0</p>',
+    '<p class="main-subtitle">True Odds · Expected Runs · Over/Under · MVP v3.0</p>',
     unsafe_allow_html=True,
 )
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 
-# ── Datatietokantahaut ────────────────────────────────────────────────────
+# ── Tietokantahaut ────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False)
 def hae_joukkueet() -> list[str]:
-    """Hakee uniikit joukkuenimet ottelutulokset-taulusta."""
     if not Path(DB_POLKU).exists():
         return []
     yhteys = sqlite3.connect(DB_POLKU)
     try:
         df = pd.read_sql_query(
             f"SELECT DISTINCT Kotijoukkue AS j FROM {TAULU} "
-            f"UNION SELECT DISTINCT Vierasjoukkue FROM {TAULU} "
-            f"ORDER BY j",
+            f"UNION SELECT DISTINCT Vierasjoukkue FROM {TAULU} ORDER BY j",
             yhteys,
         )
     finally:
@@ -275,17 +382,12 @@ def hae_joukkueet() -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def hae_syottajat() -> pd.DataFrame:
-    """
-    Lataa syöttäjätilastot taulusta 'syottajat_2025'.
-    Palauttaa tyhjän DataFramen jos taulua ei löydy.
-    """
     if not Path(DB_POLKU).exists():
         return pd.DataFrame()
     yhteys = sqlite3.connect(DB_POLKU)
     try:
         df = pd.read_sql_query(
-            "SELECT Name, Team, ERA, WHIP, GS, IP "
-            "FROM syottajat_2025 ORDER BY Name",
+            "SELECT Name, Team, ERA, WHIP, GS, IP FROM syottajat_2025 ORDER BY Name",
             yhteys,
         )
     except Exception:
@@ -300,27 +402,19 @@ def hae_data() -> pd.DataFrame:
     return lataa_data()
 
 
-# ── Apufunktiot syöttäjävalikkoja varten ─────────────────────────────────
+# ── Apufunktiot syöttäjävalikkoon ─────────────────────────────────────────
 
 def syottajat_joukkueelle(df_syottajat: pd.DataFrame, joukkue: str) -> list[str]:
-    """
-    Rakentaa listan selectbox-optioista muodossa 'Nimi  (ERA: X.XX)'
-    suodatettuna joukkueen mukaan. Lisää alkuun 'ei valita' -vaihtoehdon.
-    """
     if df_syottajat.empty:
         return ["— ei syöttäjädataa —"]
     suodatettu = df_syottajat[df_syottajat["Team"] == joukkue]
     if suodatettu.empty:
         return ["— ei syöttäjää tälle joukkueelle —"]
-    optiot = [
-        f"{r['Name']}  (ERA: {r['ERA']:.2f})"
-        for _, r in suodatettu.iterrows()
-    ]
+    optiot = [f"{r['Name']}  (ERA: {r['ERA']:.2f})" for _, r in suodatettu.iterrows()]
     return ["— ei valita —"] + optiot
 
 
 def era_valinnasta(valinta: str) -> float | None:
-    """Parsii ERA-arvon merkkijonosta 'Nimi  (ERA: X.XX)'."""
     if not valinta or valinta.startswith("—"):
         return None
     try:
@@ -330,7 +424,6 @@ def era_valinnasta(valinta: str) -> float | None:
 
 
 def nimi_valinnasta(valinta: str) -> str | None:
-    """Parsii syöttäjän nimen merkkijonosta."""
     if not valinta or valinta.startswith("—"):
         return None
     return valinta.split("  (ERA:")[0].strip()
@@ -341,17 +434,14 @@ joukkueet    = hae_joukkueet()
 df_syottajat = hae_syottajat()
 
 if not joukkueet:
-    st.error(
-        "⚠️ Tietokantaa **mlb_historical.db** ei löydy tai se on tyhjä. "
-        "Varmista, että tiedosto on samassa hakemistossa kuin app.py."
-    )
+    st.error("⚠️ Tietokantaa **mlb_historical.db** ei löydy tai se on tyhjä.")
     st.stop()
 
 if df_syottajat.empty:
     st.markdown(
         '<div class="warn-box" style="margin-bottom:1.2rem">'
-        '⚾ Syöttäjädata puuttuu – ajo <code>fetch_pitchers.py</code> '
-        'lisää ERA-tuen laskentaan.'
+        '⚾ Syöttäjädata puuttuu – aja <code>fetch_pitchers.py</code> '
+        'lisätäksesi ERA-tuen laskentaan.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -362,10 +452,8 @@ col_koti, col_vs, col_vieras = st.columns([10, 1, 10])
 
 with col_koti:
     koti = st.selectbox("🏠  KOTIJOUKKUE", joukkueet, index=0)
-    koti_optiot = syottajat_joukkueelle(df_syottajat, koti)
-    koti_valinta = st.selectbox(
-        "⚾  ALOITUSSYÖTTÄJÄ (KOTI)", koti_optiot, key="koti_syottaja"
-    )
+    koti_optiot  = syottajat_joukkueelle(df_syottajat, koti)
+    koti_valinta = st.selectbox("⚾  ALOITUSSYÖTTÄJÄ (KOTI)", koti_optiot, key="koti_sp")
 
 with col_vs:
     st.markdown('<div class="vs-badge">VS</div>', unsafe_allow_html=True)
@@ -373,12 +461,9 @@ with col_vs:
 with col_vieras:
     vieras_default = 1 if len(joukkueet) > 1 else 0
     vieras = st.selectbox("✈️  VIERASJOUKKUE", joukkueet, index=vieras_default)
-    vieras_optiot = syottajat_joukkueelle(df_syottajat, vieras)
-    vieras_valinta = st.selectbox(
-        "⚾  ALOITUSSYÖTTÄJÄ (VIERAS)", vieras_optiot, key="vieras_syottaja"
-    )
+    vieras_optiot  = syottajat_joukkueelle(df_syottajat, vieras)
+    vieras_valinta = st.selectbox("⚾  ALOITUSSYÖTTÄJÄ (VIERAS)", vieras_optiot, key="vieras_sp")
 
-# Parsitaan ERA ja nimet valinnoista
 koti_era       = era_valinnasta(koti_valinta)
 vieras_era     = era_valinnasta(vieras_valinta)
 koti_pitcher   = nimi_valinnasta(koti_valinta)
@@ -394,139 +479,224 @@ if laske:
             '<div class="warn-box">⚠️  Valitse kaksi eri joukkuetta.</div>',
             unsafe_allow_html=True,
         )
-    else:
-        with st.spinner("Lasketaan..."):
-            data  = hae_data()
-            tulos = laske_todennakoisyys(
-                koti,
-                vieras,
-                df=data,
-                koti_era=koti_era,
-                vieras_era=vieras_era,
-            )
+        st.stop()
 
-        koti_pct       = tulos["koti_voitto_tod"]   * 100
-        vieras_pct     = tulos["vieras_voitto_tod"] * 100
-        koti_kerroin   = 1 / tulos["koti_voitto_tod"]
-        vieras_kerroin = 1 / tulos["vieras_voitto_tod"]
-        era_mukana     = tulos.get("era_kaytossa", False)
-
-        koti_color   = "#c8a84b" if koti_pct >= vieras_pct else "#e8e0d0"
-        vieras_color = "#c8a84b" if vieras_pct > koti_pct  else "#e8e0d0"
-
-        def pitcher_html(pitcher: str | None, era: float | None) -> str:
-            """Rakentaa syöttäjärivin HTML:n tuloskorttiin."""
-            if pitcher and era is not None:
-                return (
-                    f'<div class="result-pitcher">&#9918; {pitcher}</div>'
-                    f'<div class="era-badge">ERA &nbsp; {era:.2f}</div>'
-                )
-            return '<div class="no-pitcher">Syöttäjää ei valittu</div>'
-
-        st.markdown('<hr class="divider">', unsafe_allow_html=True)
-
-        # ── Tuloskortit ──
-        c1, c2, c3 = st.columns([10, 1, 10])
-
-        with c1:
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="result-team">{koti}</div>
-                    <div class="result-role">Kotijoukkue</div>
-                    {pitcher_html(koti_pitcher, koti_era)}
-                    <div class="result-pct" style="color:{koti_color}">
-                        {koti_pct:.1f}<span style="font-size:1.6rem">%</span>
-                    </div>
-                    <div class="result-pct-label">Voittotn.</div>
-                    <div class="result-odds">{koti_kerroin:.2f}</div>
-                    <div class="result-odds-label">True Odds</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        with c2:
-            st.markdown('<div class="vs-badge">–</div>', unsafe_allow_html=True)
-
-        with c3:
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="result-team">{vieras}</div>
-                    <div class="result-role">Vierasjoukkue</div>
-                    {pitcher_html(vieras_pitcher, vieras_era)}
-                    <div class="result-pct" style="color:{vieras_color}">
-                        {vieras_pct:.1f}<span style="font-size:1.6rem">%</span>
-                    </div>
-                    <div class="result-pct-label">Voittotn.</div>
-                    <div class="result-odds">{vieras_kerroin:.2f}</div>
-                    <div class="result-odds-label">True Odds</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        # ── Progresspalkki ──
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.caption(
-            f"**{koti}**  {koti_pct:.1f} %  ←  Voittojakauma  →  "
-            f"{vieras_pct:.1f} %  **{vieras}**"
-        )
-        st.progress(int(koti_pct))
-
-        # ── Tilasto-infolaatikko ──
-        h2h = tulos["h2h_ottelut"]
-        h2h_teksti = (
-            f"<b>{h2h} keskinäistä ottelua</b> löydetty. "
-            f"Kotivoitto&#8209;% H2H: <b>{tulos['h2h_koti_vp']*100:.1f} %</b>."
-            if h2h > 0
-            else "Keskinäisiä otteluita ei löydetty — käytetty neutraalia 50/50."
-        )
-        malli = (
-            "60 % yleinen VP + 20 % H2H + 20 % ERA&#8209;vertailu"
-            if era_mukana
-            else "70 % yleinen VP + 30 % H2H"
+    with st.spinner("Lasketaan..."):
+        data  = hae_data()
+        tulos = laske_todennakoisyys(
+            koti, vieras, df=data,
+            koti_era=koti_era, vieras_era=vieras_era,
         )
 
+    koti_pct       = tulos["koti_voitto_tod"]   * 100
+    vieras_pct     = tulos["vieras_voitto_tod"] * 100
+    koti_kerroin   = 1 / tulos["koti_voitto_tod"]
+    vieras_kerroin = 1 / tulos["vieras_voitto_tod"]
+    era_mukana     = tulos.get("era_kaytossa", False)
+
+    koti_color   = "#c8a84b" if koti_pct >= vieras_pct else "#e8e0d0"
+    vieras_color = "#c8a84b" if vieras_pct > koti_pct  else "#e8e0d0"
+
+    def pitcher_html(pitcher: str | None, era: float | None) -> str:
+        if pitcher and era is not None:
+            return (
+                f'<div class="result-pitcher">&#9918; {pitcher}</div>'
+                f'<div class="era-badge">ERA &nbsp; {era:.2f}</div>'
+            )
+        return '<div class="no-pitcher">Syöttäjää ei valittu</div>'
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # OSIO 1: Voittajakortit
+    # ═══════════════════════════════════════════════════════
+    c1, c2, c3 = st.columns([10, 1, 10])
+
+    with c1:
         st.markdown(
             f"""
-            <div class="info-box">
-                &#128202; &nbsp;Yleinen voitto&#8209;%:
-                <b>{koti}</b> {tulos['koti_yleinen_vp']*100:.1f} % &nbsp;|&nbsp;
-                <b>{vieras}</b> {tulos['vieras_yleinen_vp']*100:.1f} %
-                &nbsp;&nbsp;&#183;&nbsp;&nbsp;{h2h_teksti}
-                <br><br>
-                <span style="font-size:0.75rem">Malli: {malli}</span>
+            <div class="result-card">
+                <div class="result-team">{koti}</div>
+                <div class="result-role">Kotijoukkue</div>
+                {pitcher_html(koti_pitcher, koti_era)}
+                <div class="result-pct" style="color:{koti_color}">
+                    {koti_pct:.1f}<span style="font-size:1.6rem">%</span>
+                </div>
+                <div class="result-pct-label">Voittotn.</div>
+                <div class="result-odds">{koti_kerroin:.2f}</div>
+                <div class="result-odds-label">True Odds</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # ── ERA-vertailulohko ──
-        if era_mukana:
-            parempi = (
-                koti_pitcher if (koti_era or 99) < (vieras_era or 99)
-                else vieras_pitcher
-            )
-            st.markdown(
-                f"""
-                <div class="era-info-box">
-                    &#9918; ERA-analyysi: &nbsp;
-                    <b>{koti_pitcher}</b> {koti_era:.2f}
-                    &nbsp; vs &nbsp;
-                    <b>{vieras_pitcher}</b> {vieras_era:.2f}
-                    &nbsp; &#183; &nbsp;
-                    Parempi syöttäjä: <b>{parempi}</b>
+    with c2:
+        st.markdown('<div class="vs-badge">–</div>', unsafe_allow_html=True)
+
+    with c3:
+        st.markdown(
+            f"""
+            <div class="result-card">
+                <div class="result-team">{vieras}</div>
+                <div class="result-role">Vierasjoukkue</div>
+                {pitcher_html(vieras_pitcher, vieras_era)}
+                <div class="result-pct" style="color:{vieras_color}">
+                    {vieras_pct:.1f}<span style="font-size:1.6rem">%</span>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        elif koti_pitcher or vieras_pitcher:
-            st.markdown(
-                '<div class="era-info-box">'
-                '&#128161; Valitse <b>molempien</b> joukkueiden syöttäjä, '
-                'jotta ERA otetaan mukaan laskentaan.'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+                <div class="result-pct-label">Voittotn.</div>
+                <div class="result-odds">{vieras_kerroin:.2f}</div>
+                <div class="result-odds-label">True Odds</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Progresspalkki
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption(
+        f"**{koti}**  {koti_pct:.1f} %  ←  Voittojakauma  →  "
+        f"{vieras_pct:.1f} %  **{vieras}**"
+    )
+    st.progress(int(koti_pct))
+
+    # ═══════════════════════════════════════════════════════
+    # OSIO 2: Juoksuodottama / Over-Under
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ou-section-title">&#127919; &nbsp; JUOKSUODOTTAMA &nbsp; / &nbsp; OVER · UNDER</div>',
+        unsafe_allow_html=True,
+    )
+
+    koti_od   = tulos["koti_odotus"]
+    vieras_od = tulos["vieras_odotus"]
+    total_od  = tulos["total_odotus"]
+
+    # Kokonaisrivi (iso numero keskellä)
+    st.markdown(
+        f"""
+        <div class="ou-total-card">
+            <div class="ou-total-number">{total_od:.1f}</div>
+            <div class="ou-total-unit">Juoksua yhteensä</div>
+            <div class="ou-total-label">O/U&#8209;LINJA</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Erittely: koti vs. vieras
+    d1, d_mid, d2 = st.columns([10, 1, 10])
+
+    with d1:
+        st.markdown(
+            f"""
+            <div class="ou-team-card">
+                <div class="ou-team-name">{koti}</div>
+                <div class="ou-team-role">Kotijoukkue</div>
+                <div class="ou-runs">{koti_od:.1f}</div>
+                <div class="ou-runs-label">Odotettua juoksua</div>
+                <div class="ou-stat-row">
+                    Pisteytyska.&nbsp;<span>{tulos['koti_pisteet_ka']:.1f}</span>
+                    &nbsp;&#183;&nbsp;
+                    Päästöka.&nbsp;<span>{tulos['koti_paastot_ka']:.1f}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with d_mid:
+        st.markdown(
+            '<div style="text-align:center;padding-top:1.8rem;'
+            'font-family:\'Bebas Neue\',sans-serif;font-size:1.2rem;color:#2a3820;">+</div>',
+            unsafe_allow_html=True,
+        )
+
+    with d2:
+        st.markdown(
+            f"""
+            <div class="ou-team-card">
+                <div class="ou-team-name">{vieras}</div>
+                <div class="ou-team-role">Vierasjoukkue</div>
+                <div class="ou-runs">{vieras_od:.1f}</div>
+                <div class="ou-runs-label">Odotettua juoksua</div>
+                <div class="ou-stat-row">
+                    Pisteytyska.&nbsp;<span>{tulos['vieras_pisteet_ka']:.1f}</span>
+                    &nbsp;&#183;&nbsp;
+                    Päästöka.&nbsp;<span>{tulos['vieras_paastot_ka']:.1f}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # O/U huomiolaatikko
+    ou_malli = (
+        "35 % hyökkäyskeskiarvo + 35 % puolustuskeskiarvo + 30 % syöttäjä&#8209;ERA"
+        if era_mukana
+        else "50 % hyökkäyskeskiarvo + 50 % puolustuskeskiarvo (syöttäjää ei valittu)"
+    )
+    st.markdown(
+        f"""
+        <div class="ou-note-box">
+            &#128202; O/U&#8209;malli: {ou_malli}.
+            Linja <b>{total_od:.1f}</b> tarkoittaa, että ottelu ylittää
+            tämän rajan n. 50 % mallien mukaan.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ═══════════════════════════════════════════════════════
+    # OSIO 3: Tilasto-info + ERA-analyysi
+    # ═══════════════════════════════════════════════════════
+    h2h = tulos["h2h_ottelut"]
+    h2h_teksti = (
+        f"<b>{h2h} keskinäistä ottelua</b> löydetty. "
+        f"Kotivoitto&#8209;% H2H: <b>{tulos['h2h_koti_vp']*100:.1f} %</b>."
+        if h2h > 0
+        else "Keskinäisiä otteluita ei löydetty — käytetty neutraalia 50/50."
+    )
+    malli = (
+        "60 % yleinen VP + 20 % H2H + 20 % ERA&#8209;vertailu"
+        if era_mukana
+        else "70 % yleinen VP + 30 % H2H"
+    )
+
+    st.markdown(
+        f"""
+        <div class="info-box">
+            &#128202;&nbsp; Yleinen voitto&#8209;%:
+            <b>{koti}</b> {tulos['koti_yleinen_vp']*100:.1f} % &nbsp;|&nbsp;
+            <b>{vieras}</b> {tulos['vieras_yleinen_vp']*100:.1f} %
+            &nbsp;&#183;&nbsp; {h2h_teksti}
+            <br><br>
+            <span style="font-size:0.75rem">Voittomalli: {malli}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if era_mukana:
+        parempi = koti_pitcher if (koti_era or 99) < (vieras_era or 99) else vieras_pitcher
+        st.markdown(
+            f"""
+            <div class="era-info-box">
+                &#9918; ERA&#8209;analyysi:&nbsp;
+                <b>{koti_pitcher}</b> {koti_era:.2f}
+                &nbsp;vs&nbsp;
+                <b>{vieras_pitcher}</b> {vieras_era:.2f}
+                &nbsp;&#183;&nbsp;
+                Parempi syöttäjä: <b>{parempi}</b>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif koti_pitcher or vieras_pitcher:
+        st.markdown(
+            '<div class="era-info-box">'
+            '&#128161; Valitse <b>molempien</b> joukkueiden syöttäjä, '
+            'jotta ERA otetaan mukaan laskentaan.'
+            '</div>',
+            unsafe_allow_html=True,
+        )

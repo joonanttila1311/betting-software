@@ -4,16 +4,16 @@ laskentamoottori.py
 MLB-vedonlyönnin todennäköisyyslaskuri (MVP)
 
 Lukee ottelutulokset SQLite-tietokannasta ja laskee
-yksinkertaisen todennäköisyysarvion kahdelle joukkueelle.
+yksinkertaisen todennäköisyysarvion kahdelle joukkueelle
+sekä juoksuodottaman (Expected Runs / Over-Under).
 
-Painotuslogiikka (ilman syöttäjädataa):
-  - 70% yleinen voittoprosentti (koko kausi)
-  - 30% keskinäiset ottelut (head-to-head)
+Todennäköisyyslaskennan painotukset:
+  Ilman ERA: 70% yleinen voittoprosentti + 30% H2H
+  ERA:n kanssa: 60% yleinen VP + 20% H2H + 20% ERA-vertailu
 
-Painotuslogiikka (syöttäjä-ERA annettu):
-  - 60% yleinen voittoprosentti
-  - 20% keskinäiset ottelut (head-to-head)
-  - 20% ERA-vertailu (pienempi ERA = parempi syöttäjä)
+Juoksuodottaman painotukset:
+  Ilman ERA: 50% joukkueen hyökkäyskeskiarvo + 50% vastustajan puolustuskeskiarvo
+  ERA:n kanssa: 35% hyökkäys + 35% puolustus + 30% syöttäjän ERA-skaalattu arvo
 """
 
 import sqlite3
@@ -23,20 +23,28 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # VAKIOT
 # ---------------------------------------------------------------------------
-DB_POLKU = "mlb_historical.db"          # Tietokannan sijainti
-TAULU    = "ottelutulokset_2025"         # Käytettävä taulu
+DB_POLKU = "mlb_historical.db"
+TAULU    = "ottelutulokset_2025"
 
-# Painotukset ilman syöttäjädataa (summa = 1.0)
-PAINO_YLEINEN   = 0.70   # yleinen voittoprosentti koko kaudelta
-PAINO_H2H       = 0.30   # keskinäiset ottelut (head-to-head)
+# Todennäköisyyspainotukset ilman ERA (summa = 1.0)
+PAINO_YLEINEN = 0.70
+PAINO_H2H     = 0.30
 
-# Painotukset kun ERA-data on käytettävissä (summa = 1.0)
+# Todennäköisyyspainotukset ERA:n kanssa (summa = 1.0)
 PAINO_YLEINEN_ERA = 0.60
 PAINO_H2H_ERA     = 0.20
-PAINO_ERA         = 0.20   # syöttäjän ERA-vertailu
+PAINO_ERA         = 0.20
 
-# ERA-referenssiarvo (MLB:n historiallinen keskiarvo ~4.20)
+# ERA-referenssiarvo normalisointia varten (MLB historiallinen keskiarvo ~4.20)
 ERA_REFERENSSI = 4.20
+
+# Juoksuodottaman painotukset ERA:n kanssa (summa = 1.0)
+PAINO_JO_HYOKKAYS  = 0.35   # joukkueen oma pisteytyskeskiarvo
+PAINO_JO_PUOLUSTUS = 0.35   # vastustajan päästämien juoksujen keskiarvo
+PAINO_JO_ERA       = 0.30   # syöttäjän ERA muunnettuna juoksuarvioksi
+
+# MLB:n historiallinen juoksukeskiarvo per ottelu per joukkue (~4.5)
+MLB_JUOKSU_KESKIARVO = 4.50
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +71,6 @@ def lataa_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
     finally:
         yhteys.close()
 
-    # Tarkistetaan, että vaaditut sarakkeet löytyvät
     vaaditut = {"Paivamaara", "Kotijoukkue", "Koti_Juoksut",
                 "Vierasjoukkue", "Vieras_Juoksut"}
     puuttuvat = vaaditut - set(df.columns)
@@ -74,67 +81,46 @@ def lataa_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# APUFUNKTIOT
+# APUFUNKTIOT – voittotodennäköisyys
 # ---------------------------------------------------------------------------
 
 def laske_yleinen_voittoprosentti(df: pd.DataFrame, joukkue: str) -> float:
     """
-    Laskee joukkueen yleisen voittoprosentin koko kaudelta
-    (kotipelit + vieraspelit yhteenlaskettuna).
-
-    Palauttaa:
-        float – voittoprosentti välillä [0.0, 1.0],
-                tai 0.5 jos joukkueella ei ole yhtään peliä datassa.
+    Laskee joukkueen yleisen voittoprosentin koko kaudelta.
+    Palauttaa 0.5 jos dataa ei löydy.
     """
-    # Kotipelit
-    koti_pelit  = df[df["Kotijoukkue"]   == joukkue]
-    koti_voitot = (koti_pelit["Koti_Juoksut"] > koti_pelit["Vieras_Juoksut"]).sum()
-
-    # Vieraspelit
-    vieras_pelit  = df[df["Vierasjoukkue"]  == joukkue]
+    koti_pelit    = df[df["Kotijoukkue"]  == joukkue]
+    koti_voitot   = (koti_pelit["Koti_Juoksut"] > koti_pelit["Vieras_Juoksut"]).sum()
+    vieras_pelit  = df[df["Vierasjoukkue"] == joukkue]
     vieras_voitot = (vieras_pelit["Vieras_Juoksut"] > vieras_pelit["Koti_Juoksut"]).sum()
 
-    yhteensa_pelit  = len(koti_pelit) + len(vieras_pelit)
-    yhteensa_voitot = koti_voitot + vieras_voitot
-
-    if yhteensa_pelit == 0:
-        # Ei dataa → palautetaan neutraali arvo
+    yhteensa = len(koti_pelit) + len(vieras_pelit)
+    if yhteensa == 0:
         return 0.5
-
-    return yhteensa_voitot / yhteensa_pelit
+    return (koti_voitot + vieras_voitot) / yhteensa
 
 
 def laske_h2h_voittoprosentti(
     df: pd.DataFrame, koti: str, vieras: str
 ) -> tuple[float, int]:
     """
-    Laskee kotijoukkueen voittoprosentin *keskinäisissä* otteluissa
-    näitä kahta joukkuetta vastaan.
-
-    Palauttaa:
-        (voittoprosentti: float, ottelumaara: int)
-        Voittoprosentti on kotijoukkueen osuus [0.0, 1.0].
-        Jos keskinäisiä pelejä ei ole, palautetaan (0.5, 0).
+    Laskee kotijoukkueen voittoprosentin keskinäisissä otteluissa.
+    Palauttaa (0.5, 0) jos pelejä ei ole.
     """
-    # Suodatetaan pelit, joissa nämä kaksi joukkuetta kohtaavat
     h2h = df[
-        ((df["Kotijoukkue"]   == koti)   & (df["Vierasjoukkue"] == vieras)) |
-        ((df["Kotijoukkue"]   == vieras) & (df["Vierasjoukkue"] == koti))
+        ((df["Kotijoukkue"]  == koti)   & (df["Vierasjoukkue"] == vieras)) |
+        ((df["Kotijoukkue"]  == vieras) & (df["Vierasjoukkue"] == koti))
     ].copy()
 
     if len(h2h) == 0:
         return 0.5, 0
 
-    # Lasketaan kotijoukkueen voitot keskinäisissä peleissä
-    # (riippumatta siitä, pelattiinko koti- vai vieraana)
     koti_voitot = 0
     for _, rivi in h2h.iterrows():
         if rivi["Kotijoukkue"] == koti:
-            # Koti pelasi kotona
             if rivi["Koti_Juoksut"] > rivi["Vieras_Juoksut"]:
                 koti_voitot += 1
         else:
-            # Koti pelasi vieraana
             if rivi["Vieras_Juoksut"] > rivi["Koti_Juoksut"]:
                 koti_voitot += 1
 
@@ -142,7 +128,97 @@ def laske_h2h_voittoprosentti(
 
 
 # ---------------------------------------------------------------------------
-# PÄÄFUNKTIO: todennäköisyyslaskuri
+# APUFUNKTIO – juoksuodottama
+# ---------------------------------------------------------------------------
+
+def laske_juoksuodottama(
+    koti: str,
+    vieras: str,
+    df: pd.DataFrame,
+    koti_era: float | None = None,
+    vieras_era: float | None = None,
+) -> dict:
+    """
+    Laskee kummankin joukkueen odotetun juoksumäärän tähän otteluun.
+
+    Logiikka (kullekin joukkueelle erikseen):
+      1. Joukkueen historiallinen pisteytyskeskiarvo (tehtyjen juoksujen ka.)
+      2. Vastustajan historiallinen puolustuskeskiarvo (päästettyjen juoksujen ka.)
+      3. Jos syöttäjän ERA annettu, muunnetaan se 9 vuoroparin juoksumääräksi
+         (ERA = juoksut / 9 inningiä) ja painotetaan mukaan.
+
+    Fallback: jos dataa ei ole, käytetään MLB-keskiarvoa (4.50 juoksua/ottelu).
+
+    Palauttaa:
+        dict:
+            koti_odotus   – kotijoukkueen odotetut juoksut (float)
+            vieras_odotus – vierasjoukkueen odotetut juoksut (float)
+            total_odotus  – odotettu kokonaisjuoksumäärä (summa)
+            koti_pisteet_ka   – historiallinen pisteytyskeskiarvo
+            vieras_pisteet_ka – historiallinen pisteytyskeskiarvo
+            koti_paastot_ka   – historiallinen päästöt-ka (vastustajan näkökulmasta)
+            vieras_paastot_ka – historiallinen päästöt-ka
+    """
+
+    # ── 1. Historiallinen pisteytyskeskiarvo (joukkueen tekemät juoksut) ──
+    def pisteet_ka(joukkue: str) -> float:
+        """Joukkueen keskimääräiset tehdyt juoksut per ottelu koko kaudelta."""
+        koti_p   = df[df["Kotijoukkue"]  == joukkue]["Koti_Juoksut"]
+        vieras_p = df[df["Vierasjoukkue"] == joukkue]["Vieras_Juoksut"]
+        kaikki   = pd.concat([koti_p, vieras_p])
+        return float(kaikki.mean()) if len(kaikki) > 0 else MLB_JUOKSU_KESKIARVO
+
+    # ── 2. Historiallinen puolustuskeskiarvo (vastustajan päästämät) ──
+    def paastot_ka(joukkue: str) -> float:
+        """Joukkueen vastustajille keskimäärin päästämät juoksut per ottelu."""
+        koti_p   = df[df["Kotijoukkue"]  == joukkue]["Vieras_Juoksut"]
+        vieras_p = df[df["Vierasjoukkue"] == joukkue]["Koti_Juoksut"]
+        kaikki   = pd.concat([koti_p, vieras_p])
+        return float(kaikki.mean()) if len(kaikki) > 0 else MLB_JUOKSU_KESKIARVO
+
+    koti_pisteet   = pisteet_ka(koti)
+    vieras_pisteet = pisteet_ka(vieras)
+    # Puolustus: kotijoukkue päästää joukkueelle "vieras" ja päinvastoin
+    koti_paastot   = paastot_ka(vieras)   # vieras päästää kotia vastaan
+    vieras_paastot = paastot_ka(koti)     # koti päästää vierasta vastaan
+
+    era_kaytossa = (koti_era is not None) and (vieras_era is not None)
+
+    if era_kaytossa:
+        # ERA → juoksua per ottelu (ERA on juoksut per 9 inningiä, ottelu ~9 in.)
+        # Klipatataan järkevälle välille [1.0, 8.0]
+        koti_era_juoksut   = max(1.0, min(8.0, vieras_era))  # vierassyöttäjä päästää kotia
+        vieras_era_juoksut = max(1.0, min(8.0, koti_era))    # kotisyöttäjä päästää vierasta
+
+        # Painotettu yhdistelmä ERA:n kanssa
+        koti_odotus = (
+            PAINO_JO_HYOKKAYS  * koti_pisteet
+            + PAINO_JO_PUOLUSTUS * koti_paastot
+            + PAINO_JO_ERA       * koti_era_juoksut
+        )
+        vieras_odotus = (
+            PAINO_JO_HYOKKAYS  * vieras_pisteet
+            + PAINO_JO_PUOLUSTUS * vieras_paastot
+            + PAINO_JO_ERA       * vieras_era_juoksut
+        )
+    else:
+        # Ilman ERA: tasapainoinen hyökkäys/puolustus-yhdistelmä
+        koti_odotus   = 0.5 * koti_pisteet   + 0.5 * koti_paastot
+        vieras_odotus = 0.5 * vieras_pisteet + 0.5 * vieras_paastot
+
+    return {
+        "koti_odotus":       round(koti_odotus,   2),
+        "vieras_odotus":     round(vieras_odotus, 2),
+        "total_odotus":      round(koti_odotus + vieras_odotus, 2),
+        "koti_pisteet_ka":   round(koti_pisteet,   2),
+        "vieras_pisteet_ka": round(vieras_pisteet, 2),
+        "koti_paastot_ka":   round(koti_paastot,   2),
+        "vieras_paastot_ka": round(vieras_paastot, 2),
+    }
+
+
+# ---------------------------------------------------------------------------
+# PÄÄFUNKTIO: todennäköisyyslaskuri + juoksuodottama
 # ---------------------------------------------------------------------------
 
 def laske_todennakoisyys(
@@ -154,65 +230,54 @@ def laske_todennakoisyys(
     vieras_era: float | None = None,
 ) -> dict:
     """
-    Laskee yksinkertaisen todennäköisyysarvion ottelulle koti vs. vieras.
+    Laskee voittotodennäköisyyden, True Odds -kertoimet
+    ja juoksuodottaman ottelulle koti vs. vieras.
 
     Parametrit:
-        koti       – kotijoukkueen nimi (täsmälleen kuten tietokannassa)
+        koti       – kotijoukkueen nimi
         vieras     – vierasjoukkueen nimi
-        df         – valmiiksi ladattu DataFrame (valinnainen; jos None, ladataan itse)
+        df         – valmiiksi ladattu DataFrame (valinnainen)
         db_polku   – tietokannan polku (käytetään vain jos df=None)
         koti_era   – kotijoukkueen aloitussyöttäjän ERA (valinnainen)
         vieras_era – vierasjoukkueen aloitussyöttäjän ERA (valinnainen)
 
-    Palauttaa dict:
-        {
-            "kotijoukkue":        str,
-            "vierasjoukkue":      str,
-            "koti_voitto_tod":    float,   # 0–1
-            "vieras_voitto_tod":  float,   # 0–1
-            "koti_yleinen_vp":    float,
-            "vieras_yleinen_vp":  float,
-            "h2h_koti_vp":        float,
-            "h2h_ottelut":        int,
-            "era_kaytossa":       bool,    # True jos ERA huomioitu laskennassa
-        }
+    Palauttaa dict (kaikki avaimet):
+        kotijoukkue, vierasjoukkue,
+        koti_voitto_tod, vieras_voitto_tod,
+        koti_yleinen_vp, vieras_yleinen_vp,
+        h2h_koti_vp, h2h_ottelut, era_kaytossa,
+        koti_odotus, vieras_odotus, total_odotus,
+        koti_pisteet_ka, vieras_pisteet_ka,
+        koti_paastot_ka, vieras_paastot_ka
     """
     if df is None:
         df = lataa_data(db_polku)
 
-    # --- 1. Yleinen voittoprosentti ---
+    # ── 1. Yleinen voittoprosentti ──
     koti_yleinen   = laske_yleinen_voittoprosentti(df, koti)
     vieras_yleinen = laske_yleinen_voittoprosentti(df, vieras)
 
-    # Normalisoidaan niin, että koti + vieras = 1.0
     summa_yleinen = koti_yleinen + vieras_yleinen
     if summa_yleinen == 0:
-        koti_norm   = 0.5
-        vieras_norm = 0.5
+        koti_norm = vieras_norm = 0.5
     else:
         koti_norm   = koti_yleinen   / summa_yleinen
         vieras_norm = vieras_yleinen / summa_yleinen
 
-    # --- 2. Head-to-head ---
+    # ── 2. Head-to-head ──
     h2h_koti_vp, h2h_maara = laske_h2h_voittoprosentti(df, koti, vieras)
     h2h_vieras_vp = 1.0 - h2h_koti_vp
 
-    # --- 3. ERA-komponentti (jos molemmat ERA:t annettu) ---
+    # ── 3. ERA-komponentti ──
     era_kaytossa = (koti_era is not None) and (vieras_era is not None)
 
     if era_kaytossa:
-        # Muunnetaan ERA todennäköisyydeksi: pienempi ERA = parempi syöttäjä.
-        # Käytetään käänteisarvoa suhteessa referenssiarvoon, klipattuna välille [0.2, 0.8]
-        # jotta yksittäinen poikkeuksellinen ERA ei dominoi liikaa.
         koti_era_score   = max(0.2, min(0.8, ERA_REFERENSSI / (koti_era   + 0.01)))
         vieras_era_score = max(0.2, min(0.8, ERA_REFERENSSI / (vieras_era + 0.01)))
+        era_summa        = koti_era_score + vieras_era_score
+        koti_era_norm    = koti_era_score   / era_summa
+        vieras_era_norm  = vieras_era_score / era_summa
 
-        # Normalisoidaan ERA-pisteet
-        era_summa = koti_era_score + vieras_era_score
-        koti_era_norm   = koti_era_score   / era_summa
-        vieras_era_norm = vieras_era_score / era_summa
-
-        # Painotettu yhdistelmä ERA:lla
         koti_yhdistetty = (
             PAINO_YLEINEN_ERA * koti_norm
             + PAINO_H2H_ERA   * h2h_koti_vp
@@ -224,25 +289,37 @@ def laske_todennakoisyys(
             + PAINO_ERA       * vieras_era_norm
         )
     else:
-        # Perinteinen laskenta ilman syöttäjädataa
         koti_yhdistetty   = PAINO_YLEINEN * koti_norm   + PAINO_H2H * h2h_koti_vp
         vieras_yhdistetty = PAINO_YLEINEN * vieras_norm + PAINO_H2H * h2h_vieras_vp
 
-    # Normalisoidaan lopulliset todennäköisyydet
-    kokonais = koti_yhdistetty + vieras_yhdistetty
+    kokonais     = koti_yhdistetty + vieras_yhdistetty
     koti_final   = koti_yhdistetty   / kokonais
     vieras_final = vieras_yhdistetty / kokonais
 
+    # ── 4. Juoksuodottama ──
+    juoksut = laske_juoksuodottama(koti, vieras, df, koti_era, vieras_era)
+
     return {
+        # Joukkueet
         "kotijoukkue":       koti,
         "vierasjoukkue":     vieras,
+        # Voittotodennäköisyys
         "koti_voitto_tod":   round(koti_final,   4),
         "vieras_voitto_tod": round(vieras_final, 4),
+        # Tilastokomponentit
         "koti_yleinen_vp":   round(koti_yleinen, 4),
         "vieras_yleinen_vp": round(vieras_yleinen, 4),
         "h2h_koti_vp":       round(h2h_koti_vp,  4),
         "h2h_ottelut":       h2h_maara,
         "era_kaytossa":      era_kaytossa,
+        # Juoksuodottama
+        "koti_odotus":       juoksut["koti_odotus"],
+        "vieras_odotus":     juoksut["vieras_odotus"],
+        "total_odotus":      juoksut["total_odotus"],
+        "koti_pisteet_ka":   juoksut["koti_pisteet_ka"],
+        "vieras_pisteet_ka": juoksut["vieras_pisteet_ka"],
+        "koti_paastot_ka":   juoksut["koti_paastot_ka"],
+        "vieras_paastot_ka": juoksut["vieras_paastot_ka"],
     }
 
 
@@ -252,101 +329,69 @@ def laske_todennakoisyys(
 
 def tulosta_ennuste(tulos: dict) -> None:
     """Tulostaa laskentatuloksen selkeästi terminaaliin."""
-    viiva = "─" * 52
+    viiva = "─" * 56
     print(f"\n{viiva}")
-    print(f"  ⚾  OTTELUENNUSTE (MVP-laskuri)")
+    print(f"  ⚾  OTTELUENNUSTE")
     print(viiva)
-    print(f"  Kotijoukkue  : {tulos['kotijoukkue']}")
-    print(f"  Vierasjoukkue: {tulos['vierasjoukkue']}")
+    print(f"  {tulos['kotijoukkue']}  vs  {tulos['vierasjoukkue']}")
     print(viiva)
-
-    # Yleinen voittoprosentti
-    print(f"  Yleinen voitto-% (koko kausi):")
-    print(f"    {tulos['kotijoukkue']:<28} {tulos['koti_yleinen_vp']*100:5.1f} %")
-    print(f"    {tulos['vierasjoukkue']:<28} {tulos['vieras_yleinen_vp']*100:5.1f} %")
-
-    # H2H
-    if tulos["h2h_ottelut"] > 0:
-        print(f"\n  Head-to-head ({tulos['h2h_ottelut']} ottelua):")
-        print(f"    {tulos['kotijoukkue']:<28} {tulos['h2h_koti_vp']*100:5.1f} %")
-        print(f"    {tulos['vierasjoukkue']:<28} {(1-tulos['h2h_koti_vp'])*100:5.1f} %")
-    else:
-        print(f"\n  Head-to-head: ei keskinäisiä otteluita datassa")
-        print(f"    (käytetään neutraalia 50/50)")
-
-    # Lopullinen ennuste
-    print(f"\n  ▶  LOPULLINEN ENNUSTE  "
-          f"(paino: {int(PAINO_YLEINEN*100)}% yleinen / {int(PAINO_H2H*100)}% H2H):")
+    print(f"  Voittotodennäköisyys:")
     print(f"    {tulos['kotijoukkue']:<28} {tulos['koti_voitto_tod']*100:5.1f} %")
     print(f"    {tulos['vierasjoukkue']:<28} {tulos['vieras_voitto_tod']*100:5.1f} %")
+    print(f"\n  Juoksuodottama (Over/Under):")
+    print(f"    {tulos['kotijoukkue']:<28} {tulos['koti_odotus']:4.1f} juoksua")
+    print(f"    {tulos['vierasjoukkue']:<28} {tulos['vieras_odotus']:4.1f} juoksua")
+    print(f"    {'Yhteensä (O/U-linja):':<28} {tulos['total_odotus']:4.1f} juoksua")
+    print(f"  ERA käytössä: {tulos['era_kaytossa']}")
     print(f"{viiva}\n")
 
 
 # ---------------------------------------------------------------------------
-# TESTIAJO  (suoritetaan kun skripti ajetaan suoraan: python laskentamoottori.py)
+# TESTIAJO
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    # -----------------------------------------------------------------------
-    # DEMO-DATA: luodaan väliaikainen SQLite-tietokanta testitarkoituksiin,
-    # jotta skripti toimii heti ilman oikeaa mlb_historical.db-tiedostoa.
-    # Poista tämä lohko kun oikea tietokanta on käytettävissä.
-    # -----------------------------------------------------------------------
-    import os
     import numpy as np
 
     DEMO_DB = "mlb_historical.db"
     if not Path(DEMO_DB).exists():
         print("ℹ️  Demo: luodaan väliaikainen testikanta...")
         rng = np.random.default_rng(42)
-
         joukkueet = [
             "New York Yankees", "Boston Red Sox",
-            "Los Angeles Dodgers", "Chicago Cubs",
-            "Houston Astros",
+            "Los Angeles Dodgers", "Chicago Cubs", "Houston Astros",
         ]
-
         rivit = []
-        # Kotipelit jokaiselle joukkueparille
-        for i, kj in enumerate(joukkueet):
-            for j, vj in enumerate(joukkueet):
+        for kj in joukkueet:
+            for vj in joukkueet:
                 if kj == vj:
                     continue
                 for _ in range(rng.integers(3, 8)):
-                    k_juoks = int(rng.integers(0, 12))
-                    v_juoks = int(rng.integers(0, 12))
-                    if k_juoks == v_juoks:
-                        v_juoks += 1   # ei tasapelejä baseballissa
+                    k = int(rng.integers(0, 12))
+                    v = int(rng.integers(0, 12))
+                    if k == v:
+                        v += 1
                     rivit.append({
-                        "Paivamaara":    f"2025-{rng.integers(4,10):02d}-{rng.integers(1,28):02d}",
-                        "Kotijoukkue":   kj,
-                        "Koti_Juoksut":  k_juoks,
-                        "Vierasjoukkue": vj,
-                        "Vieras_Juoksut": v_juoks,
+                        "Paivamaara":     f"2025-{rng.integers(4,10):02d}-{rng.integers(1,28):02d}",
+                        "Kotijoukkue":    kj,
+                        "Koti_Juoksut":   k,
+                        "Vierasjoukkue":  vj,
+                        "Vieras_Juoksut": v,
                     })
-
         demo_df = pd.DataFrame(rivit)
         yhteys  = sqlite3.connect(DEMO_DB)
         demo_df.to_sql(TAULU, yhteys, if_exists="replace", index=False)
         yhteys.close()
-        print(f"   → Luotu {len(rivit)} testiottelua tietokantaan '{DEMO_DB}'.\n")
+        print(f"   → Luotu {len(rivit)} testiottelua.\n")
 
-    # -----------------------------------------------------------------------
-    # Ladataan data kerran ja käytetään sitä molemmissa testiajoissa
-    # -----------------------------------------------------------------------
-    print("Ladataan data tietokannasta...")
     data = lataa_data()
-    print(f"Datassa {len(data)} ottelua, {data['Kotijoukkue'].nunique()} joukkuetta.\n")
+    print(f"Datassa {len(data)} ottelua.\n")
 
-    # Testiajo 1
-    tulos1 = laske_todennakoisyys("New York Yankees", "Boston Red Sox", df=data)
-    tulosta_ennuste(tulos1)
+    t1 = laske_todennakoisyys("New York Yankees", "Boston Red Sox", df=data)
+    tulosta_ennuste(t1)
 
-    # Testiajo 2
-    tulos2 = laske_todennakoisyys("Los Angeles Dodgers", "Chicago Cubs", df=data)
-    tulosta_ennuste(tulos2)
-
-    # Testiajo 3: joukkue, jota ei ole datassa → demonstroi fallback-logiikan
-    tulos3 = laske_todennakoisyys("Houston Astros", "New York Yankees", df=data)
-    tulosta_ennuste(tulos3)
+    t2 = laske_todennakoisyys(
+        "New York Yankees", "Boston Red Sox",
+        df=data, koti_era=2.85, vieras_era=4.60
+    )
+    tulosta_ennuste(t2)
