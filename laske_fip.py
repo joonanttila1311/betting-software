@@ -1,20 +1,26 @@
 """
-laske_fip.py  –  v3.0  (Time Decay xFIP)
-==========================================
+laske_fip.py  –  v4.0  (Time Decay xFIP + Platoon Splits)
+===========================================================
 Laskee syöttäjäkohtaisen xFIP:n ja joukkuekohtaisen Bullpen-xFIP:n
 Statcast 2025 -raakadatasta käyttäen aikapainotettua laskentaa.
+Lisäksi lasketaan Platoon Splits: xFIP erikseen vasenkätisiä (L)
+ja oikeakätisiä (R) lyöjiä vastaan.
 
 Time Decay -logiikka:
     max_date = datan tuorein päivämäärä
     days_ago = (max_date - game_date).days
     weight   = 0.5 ** (days_ago / 60.0)   → 60 pv puoliintumisaika
 
-Painotettu xFIP-kaava:
+Painotettu xFIP-kaava (käytetään kaikissa kolmessa split-laskennassa):
     K, BB, HBP, fly_balls = weight-summat (ei rivimäärä)
     Outs_w = sum(out_value * weight)
     IP_w   = Outs_w / 3
     xHR    = fly_balls * 0.105
     xFIP   = ((13 * xHR) + (3 * (BB + HBP)) - (2 * K)) / IP_w + 3.20
+
+Platoon Split -fallback:
+    Jos xFIP_vs_L tai xFIP_vs_R on None tai IP_w < 1.0,
+    käytetään syöttäjän yleistä xFIP_All arvoa tilalla.
 
 Tallennettava IP = painottamaton (Outs_raw / 3), jotta luvut ovat
 vertailukelpoisia todellisiin inning-määriin.
@@ -42,6 +48,7 @@ HR_FB_SUHDE     = 0.105    # MLB:n historiallinen HR/fly_ball-suhde
 PUOLIINTUMISAIKA = 60.0    # Päiviä: paino putoaa puoleen 60 pv:ssä
 MIN_IP          = 10.0     # Minimi-IP syöttäjätauluun
 MIN_IP_LISTAUS  = 20.0     # Minimi-IP top-5-listauksia varten
+MIN_IP_SPLIT    = 1.0      # Minimi painotettu IP split-laskennalle (alle → fallback)
 BULLPEN_INNING  = 6        # Bullpen alkaa tästä vuoroparista
 
 # ---------------------------------------------------------------------------
@@ -97,7 +104,8 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
             inning_topbot,
             inning,
             game_pk,
-            game_date
+            game_date,
+            stand
         FROM statcast_2025
         WHERE events      IS NOT NULL
           AND events      != ''
@@ -276,22 +284,66 @@ def laske_xfip_komponentit(ryhma: pd.DataFrame) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 5B. PLATOON SPLIT -APUFUNKTIO
+# ---------------------------------------------------------------------------
+
+def laske_split_xfip(
+    ryhma: pd.DataFrame,
+    katisyys: str,
+    fallback_xfip: float,
+) -> float:
+    """
+    Laskee aikapainotetun xFIP:n yhdelle kätisyyssplitille (L tai R).
+
+    Parametrit:
+        ryhma         – syöttäjän / joukkueen koko DataFrame-ryhmä
+        katisyys      – 'L' tai 'R' (stand-sarakkeen arvo)
+        fallback_xfip – palautetaan jos dataa on liian vähän (IP_w < MIN_IP_SPLIT)
+
+    Palauttaa:
+        float – xFIP kyseistä kätisyyttä vastaan, tai fallback_xfip
+    """
+    if "stand" not in ryhma.columns:
+        return fallback_xfip
+
+    osajoukko = ryhma[ryhma["stand"] == katisyys]
+
+    # Liian vähän dataa → fallback
+    if len(osajoukko) == 0:
+        return fallback_xfip
+
+    komp = laske_xfip_komponentit(osajoukko)
+
+    # Tarkistetaan sekä None että liian pieni painotettu IP
+    if komp["xFIP"] is None or komp["IP_w"] < MIN_IP_SPLIT:
+        return fallback_xfip
+
+    return komp["xFIP"]
+
+
+# ---------------------------------------------------------------------------
 # 6A. SYÖTTÄJÄTAULU
 # ---------------------------------------------------------------------------
 
 def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ryhmittelee datan syöttäjittäin ja laskee:
-      xFIP (aikapainotettu), IP (aito), yleisin Team, IP_per_Start
+      xFIP_All (koko data), xFIP_vs_L, xFIP_vs_R (platoon splits),
+      IP (aito), yleisin Team, IP_per_Start.
+
+    Platoon fallback: jos split-laskenta tuottaa None tai IP_w < MIN_IP_SPLIT,
+    käytetään xFIP_All:ia tilalla.
     """
-    print("\n⚙️  Lasketaan syöttäjien aikapainotettu xFIP ...")
+    print("\n⚙️  Lasketaan syöttäjien aikapainotettu xFIP + Platoon Splits ...")
 
     rivit      = []
     ryhmittely = df.groupby("player_name", sort=True)
     n          = len(ryhmittely)
 
     for idx, (nimi, ryhma) in enumerate(ryhmittely, start=1):
-        komp = laske_xfip_komponentit(ryhma)
+        # ── Koko datan xFIP ──
+        komp     = laske_xfip_komponentit(ryhma)
+        xfip_all = komp["xFIP"]
 
         # Yleisin joukkue (mode)
         team_mode = ryhma["Team"].mode()
@@ -301,11 +353,18 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
         pelit        = ryhma["game_pk"].nunique()
         ip_per_start = round(komp["IP_raw"] / pelit, 2) if pelit > 0 else 0.0
 
+        # ── Platoon Splits (fallback = xFIP_All) ──
+        fallback     = xfip_all if xfip_all is not None else FIP_VAKIO
+        xfip_vs_l    = laske_split_xfip(ryhma, "L", fallback)
+        xfip_vs_r    = laske_split_xfip(ryhma, "R", fallback)
+
         rivit.append({
             "Name":         nimi,
             "Team":         team,
-            "xFIP":         komp["xFIP"],
-            "IP":           komp["IP_raw"],    # tallennetaan aito IP
+            "xFIP_All":     xfip_all,
+            "xFIP_vs_L":    xfip_vs_l,
+            "xFIP_vs_R":    xfip_vs_r,
+            "IP":           komp["IP_raw"],
             "IP_per_Start": ip_per_start,
         })
 
@@ -314,13 +373,13 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
 
     print()
 
-    df_out = pd.DataFrame(rivit).dropna(subset=["xFIP"])
+    df_out = pd.DataFrame(rivit).dropna(subset=["xFIP_All"])
     ennen  = len(df_out)
     df_out = df_out[df_out["IP"] >= MIN_IP].copy()
     print(f"   → IP-suodatus (≥ {MIN_IP}): {ennen} → {len(df_out)} syöttäjää")
 
-    return df_out.sort_values("xFIP").reset_index(drop=True)[
-        ["Name", "Team", "xFIP", "IP", "IP_per_Start"]
+    return df_out.sort_values("xFIP_All").reset_index(drop=True)[
+        ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "IP", "IP_per_Start"]
     ]
 
 
@@ -331,14 +390,19 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
 def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ottaa vain syötöt joissa inning >= BULLPEN_INNING.
-    Ryhmittelee joukkueittain ja laskee kollektiivisen aikapainotetun xFIP.
-    Tallentaa aidon (painottamattoman) IP:n.
+    Ryhmittelee joukkueittain ja laskee kollektiivisen aikapainotetun
+    xFIP_All, xFIP_vs_L ja xFIP_vs_R sekä aidon IP:n.
+
+    Platoon fallback: jos split-laskenta tuottaa None tai IP_w < MIN_IP_SPLIT,
+    käytetään Bullpen_xFIP_All:ia tilalla.
     """
-    print(f"\n⚙️  Lasketaan bullpen-xFIP (inning ≥ {BULLPEN_INNING}, aikapainotettu) ...")
+    print(f"\n⚙️  Lasketaan bullpen-xFIP + Platoon Splits (inning ≥ {BULLPEN_INNING}) ...")
 
     if "inning" not in df.columns:
         print("   ⚠️  Sarake 'inning' puuttuu – bullpen-laskenta ohitetaan.")
-        return pd.DataFrame(columns=["Team", "Bullpen_xFIP", "IP"])
+        return pd.DataFrame(
+            columns=["Team", "Bullpen_xFIP_All", "Bullpen_xFIP_vs_L", "Bullpen_xFIP_vs_R", "IP"]
+        )
 
     df = df.copy()
     df["inning"] = pd.to_numeric(df["inning"], errors="coerce")
@@ -349,19 +413,27 @@ def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
     for team, ryhma in df_bp.groupby("Team", sort=True):
         if not team or pd.isna(team):
             continue
-        komp = laske_xfip_komponentit(ryhma)
-        if komp["xFIP"] is None:
+        komp     = laske_xfip_komponentit(ryhma)
+        xfip_all = komp["xFIP"]
+        if xfip_all is None:
             continue
+
+        fallback   = xfip_all
+        xfip_vs_l  = laske_split_xfip(ryhma, "L", fallback)
+        xfip_vs_r  = laske_split_xfip(ryhma, "R", fallback)
+
         rivit.append({
-            "Team":         team,
-            "Bullpen_xFIP": komp["xFIP"],
-            "IP":           komp["IP_raw"],    # aito IP
+            "Team":               team,
+            "Bullpen_xFIP_All":   xfip_all,
+            "Bullpen_xFIP_vs_L":  xfip_vs_l,
+            "Bullpen_xFIP_vs_R":  xfip_vs_r,
+            "IP":                 komp["IP_raw"],
         })
 
     return (
         pd.DataFrame(rivit)
-        .dropna(subset=["Bullpen_xFIP"])
-        .sort_values("Bullpen_xFIP")
+        .dropna(subset=["Bullpen_xFIP_All"])
+        .sort_values("Bullpen_xFIP_All")
         .reset_index(drop=True)
     )
 
@@ -386,39 +458,48 @@ def tallenna(df: pd.DataFrame, taulu: str, db_polku: str = DB_POLKU) -> None:
 # ---------------------------------------------------------------------------
 
 def tulosta_top5_syottajat(df: pd.DataFrame) -> None:
-    viiva = "─" * 66
+    viiva = "─" * 76
     print(f"\n{viiva}")
     print(f"  🏆 TOP-5 ALOITUSSYÖTTÄJÄT – aikapainotettu xFIP  (IP ≥ {MIN_IP_LISTAUS})")
     print(viiva)
-    top = df[df["IP"] >= MIN_IP_LISTAUS].nsmallest(5, "xFIP")
+    top = df[df["IP"] >= MIN_IP_LISTAUS].nsmallest(5, "xFIP_All")
     if top.empty:
         print(f"  Ei syöttäjiä joilla IP ≥ {MIN_IP_LISTAUS}")
         return
-    print(f"  {'#':<3} {'Nimi':<26} {'Joukkue':<8} {'xFIP':>6} {'IP':>7} {'IP/GS':>7}")
-    print(f"  {'─'*3} {'─'*26} {'─'*8} {'─'*6} {'─'*7} {'─'*7}")
+    print(
+        f"  {'#':<3} {'Nimi':<24} {'TM':<5} {'xFIP_All':>9} "
+        f"{'vs_L':>7} {'vs_R':>7} {'IP':>7} {'IP/GS':>6}"
+    )
+    print(f"  {'─'*3} {'─'*24} {'─'*5} {'─'*9} {'─'*7} {'─'*7} {'─'*7} {'─'*6}")
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
         print(
-            f"  {rank:<3} {r['Name']:<26} {str(r['Team']):<8} "
-            f"{r['xFIP']:>6.2f} {r['IP']:>7.1f} {r['IP_per_Start']:>7.2f}"
+            f"  {rank:<3} {r['Name']:<24} {str(r['Team']):<5} "
+            f"{r['xFIP_All']:>9.2f} {r['xFIP_vs_L']:>7.2f} {r['xFIP_vs_R']:>7.2f} "
+            f"{r['IP']:>7.1f} {r['IP_per_Start']:>6.2f}"
         )
     print(viiva)
 
 
 def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
-    viiva = "─" * 52
+    viiva = "─" * 64
     print(f"\n{viiva}")
     print(f"  🏆 TOP-5 PARHAAT BULLPENIT – aikapainotettu xFIP")
     print(viiva)
-    top = df.nsmallest(5, "Bullpen_xFIP")
+    top = df.nsmallest(5, "Bullpen_xFIP_All")
     if top.empty:
         print("  Ei bullpen-dataa.")
         return
-    print(f"  {'#':<3} {'Joukkue':<10} {'Bullpen xFIP':>13} {'IP':>8}")
-    print(f"  {'─'*3} {'─'*10} {'─'*13} {'─'*8}")
+    print(
+        f"  {'#':<3} {'Joukkue':<8} {'xFIP_All':>9} "
+        f"{'vs_L':>7} {'vs_R':>7} {'IP':>8}"
+    )
+    print(f"  {'─'*3} {'─'*8} {'─'*9} {'─'*7} {'─'*7} {'─'*8}")
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
         print(
-            f"  {rank:<3} {str(r['Team']):<10} "
-            f"{r['Bullpen_xFIP']:>13.2f} {r['IP']:>8.1f}"
+            f"  {rank:<3} {str(r['Team']):<8} "
+            f"{r['Bullpen_xFIP_All']:>9.2f} "
+            f"{r['Bullpen_xFIP_vs_L']:>7.2f} {r['Bullpen_xFIP_vs_R']:>7.2f} "
+            f"{r['IP']:>8.1f}"
         )
     print(viiva)
 
@@ -430,8 +511,8 @@ def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  xFIP v3.0 – TIME DECAY  |  Statcast 2025")
-    print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}")
+    print(f"  ⚾  xFIP v4.0 – TIME DECAY + PLATOON SPLITS  |  Statcast 2025")
+    print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}  |  Split min-IP_w: {MIN_IP_SPLIT}")
     print(viiva)
 
     # Askel 1: Lue data
@@ -467,4 +548,5 @@ if __name__ == "__main__":
     print(f"  xFIP-vakio : {FIP_VAKIO}  |  HR/FB : {HR_FB_SUHDE}")
     print(f"  Bullpen    : inning ≥ {BULLPEN_INNING}")
     print(f"  Decay      : paino = 0.5 ^ (days_ago / {int(PUOLIINTUMISAIKA)})")
+    print(f"  Split fallback: IP_w < {MIN_IP_SPLIT} → käytetään xFIP_All")
     print(f"{viiva}\n")
