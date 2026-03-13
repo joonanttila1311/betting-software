@@ -1,5 +1,8 @@
 """
-app.py  –  MLB Vedonlyönti-UI  v7.0 (Dynaaminen wOBA Roster Integration)
+app.py  –  MLB Vedonlyönti-UI  v7.1 (Pure wOBA & Engine v5.0 Integration)
+========================================================================
+Puhdistettu versio: Poistettu vanha L/R-kätisyyslaskenta.
+Integroitu suoraan laskentamoottoriin v5.0 dynaamisilla wOBA-arvoilla.
 """
 
 import sqlite3
@@ -50,8 +53,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-title">MLB PRO ENGINE</p><p class="main-subtitle">Time Decay xFIP · Dynamic Platoon wOBA Integration · v7.0</p>', unsafe_allow_html=True)
-
+st.markdown('<p class="main-title">MLB PRO ENGINE</p><p class="main-subtitle">Time Decay xFIP · Dynamic wOBA Engine v5.0 · 2026</p>', unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────
 # DATAN LATAUS
@@ -68,8 +70,6 @@ def lataa_tiimit():
 @st.cache_data
 def lataa_syottajat():
     conn = sqlite3.connect(DB_POLKU)
-    # Yritetään lukea p_throws (kätisyys). Jos saraketta ei jostain syystä ole, 
-    # koodi ei kaadu vaan luo sen oletuksena ('R').
     try:
         df = pd.read_sql_query("SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP_per_Start, p_throws FROM syottajat_statcast ORDER BY Name", conn)
     except:
@@ -79,20 +79,18 @@ def lataa_syottajat():
     
     optiot = {}
     for _, r in df.iterrows():
-        # Varmistetaan kätisyys (L tai R)
         katisyys = r.get('p_throws', 'R')
-        if pd.isna(katisyys): 
-            katisyys = 'R'
+        if pd.isna(katisyys): katisyys = 'R'
             
-        # Tässä muodostetaan se teksti, joka näkyy UI:n pudotusvalikossa!
         avain = f"{r['Name']} ({r['Team']}) | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
         
         optiot[avain] = {
+            "xFIP_All": r["xFIP_All"],
             "vs_L": r["xFIP_vs_L"], 
             "vs_R": r["xFIP_vs_R"], 
             "IP": r["IP_per_Start"], 
             "Name": r["Name"],
-            "Katisyys": katisyys  # Tallennetaan kätisyys talteen logiikkaa varten
+            "Katisyys": katisyys
         }
     return optiot
 
@@ -106,8 +104,7 @@ def lataa_bullpenit():
 
 @st.cache_data
 def lataa_rosterit():
-    if not Path(JSON_POLKU).exists():
-        return {}
+    if not Path(JSON_POLKU).exists(): return {}
     with open(JSON_POLKU, encoding="utf-8") as f:
         return json.load(f)
 
@@ -122,6 +119,7 @@ def lataa_lyojat():
     except Exception:
         return pd.DataFrame()
 
+# Alustus
 tiimit = lataa_tiimit()
 optiot_syottajat = lataa_syottajat()
 bp_dict = lataa_bullpenit()
@@ -132,7 +130,6 @@ if not tiimit or not optiot_syottajat or not rosterit:
     st.error("Dataa puuttuu! Varmista, että tietokanta ja JSON-tiedosto ovat olemassa.")
     st.stop()
 
-
 # ────────────────────────────────────────────────────────────────────────────
 # APUFUNKTIOT
 # ────────────────────────────────────────────────────────────────────────────
@@ -141,14 +138,7 @@ def pura_joukkue(valinta):
     osat = valinta.split(" (")
     return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
 
-#def paattele_kasisyys(sp_data: dict) -> str:
-  #  """Oikeakätinen on yleensä vaikeampi vasurille (xFIP_vs_L > xFIP_vs_R)."""
-   # if pd.notna(sp_data["vs_L"]) and pd.notna(sp_data["vs_R"]):
-   #     return "L" if sp_data["vs_L"] < sp_data["vs_R"] else "R"
-   # return "R"
-
 def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, joukkue_lyh: str, vastus_sp_kasisyys: str) -> float:
-    """Laskee joukkueen dynaamisen wOBA:n (Yhdeksikkö 90% + Penkki 10%)"""
     split = f"wOBA_vs_{vastus_sp_kasisyys}"
     joukkue_roster = rosterit.get(joukkue_lyh, [])
     nimi_id = {p["name"]: p["id"] for p in joukkue_roster}
@@ -156,7 +146,8 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, joukkue_lyh: str, vastu
     def hae_arvot(nimet):
         lst = []
         for n in nimet:
-            pid = nimi_id.get(n)
+            p_clean = n.split(" (")[0] # "Judge, Aaron (NYY)" -> "Judge, Aaron"
+            pid = nimi_id.get(p_clean)
             if pid and not df_lyojat.empty and pid in df_lyojat.index:
                 v = df_lyojat.loc[pid].get(split, df_lyojat.loc[pid].get("wOBA_All"))
                 lst.append(float(v) if pd.notna(v) else LIIGA_WOBA_KA)
@@ -166,17 +157,14 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, joukkue_lyh: str, vastu
 
     yh_lst = hae_arvot(yh_nimet)
     pe_lst = hae_arvot(pe_nimet)
-
     yh_ka = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_WOBA_KA
     pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_WOBA_KA
     
     return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)
 
-# Suodattaa syöttäjän pudotusvalikon siten, että näkyvissä on VAIN valitun joukkueen syöttäjät
 def filtteroi_syottajat(joukkue_lyh):
     omat = [k for k in optiot_syottajat.keys() if f"({joukkue_lyh})" in k]
     return omat if omat else ["(Ei syöttäjiä)"]
-
 
 # ────────────────────────────────────────────────────────────────────────────
 # KÄYTTÖLIITTYMÄ (UI)
@@ -190,11 +178,9 @@ with c1:
     koti_koko, koti_lyh = pura_joukkue(koti_valinta)
     koti_sp_nimi = st.selectbox("Aloitussyöttäjä", filtteroi_syottajat(koti_lyh), key="k_sp")
     
-    st.markdown("<br><b>Kotijoukkueen Lyöjät (Kohtaavat vierassyöttäjän):</b>", unsafe_allow_html=True)
+    st.markdown("<br><b>Kotijoukkueen Lyöjät:</b>", unsafe_allow_html=True)
     koti_roster = [f"{p['name']} ({koti_lyh})" for p in rosterit.get(koti_lyh, [])]
     koti_yh = st.multiselect("Aloittava Yhdeksikkö (9)", koti_roster, default=koti_roster[:min(9, len(koti_roster))], key="k_yh")
-    if len(koti_yh) != 9: st.markdown(f"<div class='warn'>⚠ Valittu {len(koti_yh)} pelaajaa (Suositus: 9)</div>", unsafe_allow_html=True)
-    
     koti_pe_opt = [n for n in koti_roster if n not in koti_yh]
     koti_pe = st.multiselect("Penkki (10% paino)", koti_pe_opt, default=koti_pe_opt[:min(4, len(koti_pe_opt))], key="k_pe")
 
@@ -204,84 +190,65 @@ with c3:
     vieras_koko, vieras_lyh = pura_joukkue(vieras_valinta)
     vieras_sp_nimi = st.selectbox("Aloitussyöttäjä", filtteroi_syottajat(vieras_lyh), key="v_sp")
     
-    st.markdown("<br><b>Vierasjoukkueen Lyöjät (Kohtaavat kotisyöttäjän):</b>", unsafe_allow_html=True)
+    st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
     vieras_roster = [f"{p['name']} ({vieras_lyh})" for p in rosterit.get(vieras_lyh, [])]
     vieras_yh = st.multiselect("Aloittava Yhdeksikkö (9)", vieras_roster, default=vieras_roster[:min(9, len(vieras_roster))], key="v_yh")
-    if len(vieras_yh) != 9: st.markdown(f"<div class='warn'>⚠ Valittu {len(vieras_yh)} pelaajaa (Suositus: 9)</div>", unsafe_allow_html=True)
-    
     vieras_pe_opt = [n for n in vieras_roster if n not in vieras_yh]
     vieras_pe = st.multiselect("Penkki (10% paino)", vieras_pe_opt, default=vieras_pe_opt[:min(4, len(vieras_pe_opt))], key="v_pe")
 
-
 # ────────────────────────────────────────────────────────────────────────────
-# LASKENTA JA TULOSTUS
+# LASKENTA
 # ────────────────────────────────────────────────────────────────────────────
 
-if st.button("LASKE TODENNÄKÖISYYS (PRO MALLI)"):
+if st.button("⚡ LASKE TODENNÄKÖISYYS"):
     koti_sp_data = optiot_syottajat[koti_sp_nimi]
     vieras_sp_data = optiot_syottajat[vieras_sp_nimi]
     
-    koti_bp_data = bp_dict.get(koti_lyh, {"vs_L": 3.20, "vs_R": 3.20})
-    vieras_bp_data = bp_dict.get(vieras_lyh, {"vs_L": 3.20, "vs_R": 3.20})
+    koti_bp_data = bp_dict.get(koti_lyh, {"vs_L": 3.80, "vs_R": 3.80})
+    vieras_bp_data = bp_dict.get(vieras_lyh, {"vs_L": 3.80, "vs_R": 3.80})
     
-    # Haetaan syöttäjien TODELLISET kätisyydet datasta
     koti_sp_arm = koti_sp_data.get("Katisyys", "R")
     vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
 
-    # Siivotaan lyhenteet nimistä vertailua varten: "Judge, Aaron (NYY)" -> "Judge, Aaron"
-    clean_nimet = lambda lista: [n.split(" (")[0] for n in lista]
+    # Dynaaminen wOBA vastustajan SP:n mukaan
+    koti_woba = laske_joukkueen_woba(koti_yh, koti_pe, koti_lyh, vieras_sp_arm)
+    vieras_woba = laske_joukkueen_woba(vieras_yh, vieras_pe, vieras_lyh, koti_sp_arm)
 
-    # Lasketaan dynaaminen wOBA (0.9 * yhdeksikko + 0.1 * penkki)
-    koti_woba = laske_joukkueen_woba(clean_nimet(koti_yh), clean_nimet(koti_pe), koti_lyh, vieras_sp_arm)
-    vieras_woba = laske_joukkueen_woba(clean_nimet(vieras_yh), clean_nimet(vieras_pe), vieras_lyh, koti_sp_arm)
-
-    # Koska vanha laskentamoottori vaatii L/R määrän, luodaan sille "synteettiset"
-    # parametrit dynaamisen wOBA:n perusteella. Mitä parempi wOBA, sitä vahvempi
-    # "optimaalinen" kätisyys-suhde ohjelmalle syötetään. 
-    # Huom: Jatkossa laskentamoottori.py kannattaa päivittää lukemaan wOBA suoraan.
-    k_etu = (koti_woba - LIIGA_WOBA_KA) * 100 
-    v_etu = (vieras_woba - LIIGA_WOBA_KA) * 100
-    
-    # Välitetään data moottoriin (LHB ja RHB toimivat tässä siltana, kunnes moottori päivitetään)
-    koti_lyojat = {"L": min(9, max(0, 4 + k_etu)), "R": min(9, max(0, 5 - k_etu))}
-    vieras_lyojat = {"L": min(9, max(0, 4 + v_etu)), "R": min(9, max(0, 5 - v_etu))}
-    
-    # Välitetään data moottoriin - NYT PUHTAANA JA DYNAAMISENA
+    # MOOTTORIKUTSU v5.0
     tulos = laske_todennakoisyys(
         koti_koko, vieras_koko, df=lataa_data(),
         koti_sp=koti_sp_data, 
         koti_bp=koti_bp_data, 
-        koti_woba=koti_woba, # Suora wOBA-arvo!
+        koti_woba=koti_woba,
         vieras_sp=vieras_sp_data, 
         vieras_bp=vieras_bp_data, 
-        vieras_woba=vieras_woba # Suora wOBA-arvo!
+        vieras_woba=vieras_woba
     )
 
     k_pct, v_pct = tulos["koti_voitto_tod"] * 100, tulos["vieras_voitto_tod"] * 100
     k_odds, v_odds = 1/tulos["koti_voitto_tod"], 1/tulos["vieras_voitto_tod"]
 
+    # Tulosten näyttäminen
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([10, 1, 10])
+    
     with col1:
         st.markdown(f"""<div class="result-card"><div class="result-team">{koti_koko}</div>
-        <div class="fip-badge">{koti_sp_nimi.split(' |')[0]}</div><br>
+        <div class="fip-badge">{koti_sp_data['Name']}</div><br>
         <span style="color:#7a6e5f;font-size:0.85rem">
         Hyökkäyksen wOBA: <b>{koti_woba:.3f}</b><br>
-        SP xFIP (Mukautettu): {tulos['koti_sp_dyn']:.2f}<br>
-        BP xFIP (Mukautettu): {tulos['koti_bp_dyn']:.2f}<br>
-        <b>Ottelun syöttövoima: {tulos['koti_total_xfip']:.2f}</b></span>
+        SP xFIP: {tulos['koti_sp_dyn']:.2f} | BP xFIP: {tulos['koti_bp_dyn']:.2f}<br>
+        <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if k_pct>=v_pct else '#e8e0d0'}">{k_pct:.1f}%</div>
         <div class="result-odds">{k_odds:.2f}</div></div>""", unsafe_allow_html=True)
         
     with col3:
         st.markdown(f"""<div class="result-card"><div class="result-team">{vieras_koko}</div>
-        <div class="fip-badge">{vieras_sp_nimi.split(' |')[0]}</div><br>
+        <div class="fip-badge">{vieras_sp_data['Name']}</div><br>
         <span style="color:#7a6e5f;font-size:0.85rem">
         Hyökkäyksen wOBA: <b>{vieras_woba:.3f}</b><br>
-        SP xFIP (Mukautettu): {tulos['vieras_sp_dyn']:.2f}<br>
-        BP xFIP (Mukautettu): {tulos['vieras_bp_dyn']:.2f}<br>
-        <b>Ottelun syöttövoima: {tulos['vieras_total_xfip']:.2f}</b></span>
+        SP xFIP: {tulos['vieras_sp_dyn']:.2f} | BP xFIP: {tulos['vieras_bp_dyn']:.2f}<br>
+        <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if v_pct>k_pct else '#e8e0d0'}">{v_pct:.1f}%</div>
         <div class="result-odds">{v_odds:.2f}</div></div>""", unsafe_allow_html=True)
 
