@@ -93,6 +93,7 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
             f"Tietokantaa '{db_polku}' ei löydy. Aja ensin fetch_statcast.py."
         )
 
+    # LISÄTTY: p_throws SQL-hakuun
     kysely = """
         SELECT
             player_name,
@@ -105,7 +106,8 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
             inning,
             game_pk,
             game_date,
-            stand
+            stand,
+            p_throws 
         FROM statcast_2025
         WHERE events      IS NOT NULL
           AND events      != ''
@@ -348,6 +350,13 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
         # Yleisin joukkue (mode)
         team_mode = ryhma["Team"].mode()
         team      = str(team_mode.iloc[0]) if len(team_mode) > 0 else ""
+        
+        # LISÄTTY: Päätellään syöttäjän kätisyys
+        if "p_throws" in ryhma.columns:
+            p_throws_mode = ryhma["p_throws"].dropna().mode()
+            katisyys = str(p_throws_mode.iloc[0]) if len(p_throws_mode) > 0 else "R"
+        else:
+            katisyys = "R"
 
         # IP_per_Start: aito IP / uniikkeja pelejä
         pelit        = ryhma["game_pk"].nunique()
@@ -366,6 +375,7 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
             "xFIP_vs_R":    xfip_vs_r,
             "IP":           komp["IP_raw"],
             "IP_per_Start": ip_per_start,
+            "p_throws":     katisyys, # LISÄTTY: Kätisyys mukaan tauluun!
         })
 
         if idx % 100 == 0 or idx == n:
@@ -378,8 +388,9 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
     df_out = df_out[df_out["IP"] >= MIN_IP].copy()
     print(f"   → IP-suodatus (≥ {MIN_IP}): {ennen} → {len(df_out)} syöttäjää")
 
+    # LISÄTTY: "p_throws" palautettaviin sarakkeisiin
     return df_out.sort_values("xFIP_All").reset_index(drop=True)[
-        ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "IP", "IP_per_Start"]
+        ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "IP", "IP_per_Start", "p_throws"]
     ]
 
 
