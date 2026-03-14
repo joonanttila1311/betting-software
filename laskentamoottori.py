@@ -38,7 +38,8 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, df, koti_sp, koti_bp, koti_woba
         sp_paino = max(0.1, min(0.9, ip_start / 9.0)) # Rajoitetaan välille 10% - 90%
         bp_paino = 1.0 - sp_paino
         
-        # Käytetään kätisyyden mukaan valittua xFIP:tä jos mahdollista, muuten All
+        # Käytetään syöttäjille aina heidän absoluuttista perustasoaan (All), 
+        # koska kätisyysetu (Platoon split) on jo laskettu sisään lyöjien wOBA-arvoihin!
         sp_xfip = sp_data.get("xFIP_All", LIIGA_XFIP_KA)
         bp_xfip = bp_data.get("All", LIIGA_XFIP_KA)
         
