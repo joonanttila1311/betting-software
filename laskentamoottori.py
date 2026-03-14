@@ -2,6 +2,7 @@
 laskentamoottori.py – v5.0 (Dynamic wOBA & IP/GS Weighting)
 ==========================================================
 Tämä on mallin aivot. Laskee voittotodennäköisyydet ja juoksuodotukset.
+Sisältää 1% Momentum- ja H2H-painotuksen
 """
 
 import sqlite3
@@ -12,15 +13,69 @@ DB_POLKU = "mlb_historical.db"
 LIIGA_XFIP_KA = 3.80
 LIIGA_WOBA_KA = 0.310
 
-def lataa_data():
-    """Lataa perustiedot tietokannasta laskentaa varten."""
+def hae_momentum(koti_nimi, vieras_nimi):
+    """
+    Lukee ottelutulokset-taulusta joukkueiden historian.
+    Laskee H2H-edun ja Kuntopuntari-edun (viimeiset 10 peliä).
+    Palauttaa momentum-edun (Edge), joka on maksimissaan n. 0.015 (n. 1.5%).
+    """
+    vuosi = date.today().year
+    taulu = f"ottelutulokset_{vuosi}"
+    
     try:
         conn = sqlite3.connect(DB_POLKU)
-        df = pd.read_sql_query("SELECT Team, Bullpen_xFIP_All FROM bullpen_statcast", conn)
+        df = pd.read_sql_query(f"SELECT * FROM {taulu}", conn)
         conn.close()
-        return df
     except:
-        return pd.DataFrame()
+        # Jos taulua ei ole (esim. kauden eka päivä), ei anneta momentum-etua
+        return 0.0
+
+    if df.empty:
+        return 0.0
+
+    # 1. KESKINÄISET OTTELUT (H2H)
+    # Etsitään pelit, joissa nämä kaksi joukkuetta ovat kohdanneet
+    h2h_pelit = df[
+        ((df['Kotijoukkue'] == koti_nimi) & (df['Vierasjoukkue'] == vieras_nimi)) |
+        ((df['Kotijoukkue'] == vieras_nimi) & (df['Vierasjoukkue'] == koti_nimi))
+    ]
+    
+    koti_h2h_voitot = 0
+    vieras_h2h_voitot = 0
+    
+    for _, peli in h2h_pelit.iterrows():
+        if peli['Koti_Juoksut'] > peli['Vieras_Juoksut']:
+            if peli['Kotijoukkue'] == koti_nimi: koti_h2h_voitot += 1
+            else: vieras_h2h_voitot += 1
+        else:
+            if peli['Vierasjoukkue'] == koti_nimi: koti_h2h_voitot += 1
+            else: vieras_h2h_voitot += 1
+            
+    h2h_yht = koti_h2h_voitot + vieras_h2h_voitot
+    
+    # 2. KUNTOPUNTARI (Viimeiset 10 peliä per joukkue)
+    def laske_kunto(joukkue):
+        pelit = df[(df['Kotijoukkue'] == joukkue) | (df['Vierasjoukkue'] == joukkue)].tail(10)
+        voitot = 0
+        for _, p in pelit.iterrows():
+            if p['Kotijoukkue'] == joukkue and p['Koti_Juoksut'] > p['Vieras_Juoksut']: voitot += 1
+            elif p['Vierasjoukkue'] == joukkue and p['Vieras_Juoksut'] > p['Koti_Juoksut']: voitot += 1
+        return voitot / max(len(pelit), 1)
+
+    koti_kunto = laske_kunto(koti_nimi)
+    vieras_kunto = laske_kunto(vieras_nimi)
+    
+    # 3. YHDISTETÄÄN EDUKSI (Matemaattinen skaalaus)
+    # Jos koti on voittanut kaikki H2H-pelit, h2h_etu on +0.005
+    h2h_etu = 0.0
+    if h2h_yht > 0:
+        h2h_etu = ((koti_h2h_voitot / h2h_yht) - 0.5) * 0.01  # Max +/- 0.005 Edge
+        
+    # Jos koti on voittanut 10/10 ja vieras 0/10, kunto_etu on +0.005
+    kunto_etu = (koti_kunto - vieras_kunto) * 0.005
+
+    # Palautetaan yhteinen momentum-etu kotijoukkueen näkökulmasta
+    return h2h_etu + kunto_etu
 
 def laske_todennakoisyys(koti_nimi, vieras_nimi, df, koti_sp, koti_bp, koti_woba, vieras_sp, vieras_bp, vieras_woba):
     """
@@ -57,6 +112,10 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, df, koti_sp, koti_bp, koti_woba
     # Lisätään kotikenttäetu (historiallisesti n. 3-4%)
     koti_etu += 0.035
 
+    # LISÄTÄÄN MOMENTUM JA H2H (Noin 1% vaikutus)
+    momentum = hae_momentum(koti_nimi, vieras_nimi)
+    koti_etu += momentum
+
     # 4. Muutetaan etu todennäköisyydeksi (Logistinen funktio)
     ero = koti_etu - vieras_etu
     # Kerroin 5.0 on kalibroitu MLB:n varianssiin
@@ -81,5 +140,6 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, df, koti_sp, koti_bp, koti_woba
         "koti_total_xfip": koti_syotto_total,
         "vieras_sp_dyn": vieras_sp.get("xFIP_All", LIIGA_XFIP_KA),
         "vieras_bp_dyn": vieras_bp.get("vs_R", LIIGA_XFIP_KA),
-        "vieras_total_xfip": vieras_syotto_total
+        "vieras_total_xfip": vieras_syotto_total,
+        "momentum_edge": momentum # Palautetaan UI:lle näytettäväksi, jos halutaan!
     }
