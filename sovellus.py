@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 import json
 from pathlib import Path
-from laskentamoottori import laske_todennakoisyys, lataa_data, DB_POLKU
+from laskentamoottori import laske_todennakoisyys, DB_POLKU
 
 st.set_page_config(page_title="MLB Pro Engine", page_icon="⚾", layout="wide")
 
@@ -218,7 +218,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
 
     # MOOTTORIKUTSU v5.0
     tulos = laske_todennakoisyys(
-        koti_koko, vieras_koko, df=lataa_data(),
+        koti_koko, vieras_koko,
         koti_sp=koti_sp_data, 
         koti_bp=koti_bp_data, 
         koti_woba=koti_woba,
@@ -241,6 +241,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         Hyökkäyksen wOBA: <b>{koti_woba:.3f}</b><br>
         SP xFIP: {tulos['koti_sp_dyn']:.2f} | BP xFIP: {tulos['koti_bp_dyn']:.2f}<br>
         <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b></span>
+        <b>Momentum-etu: {tulos['momentum_edge'] * 100:.2f} %</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if k_pct>=v_pct else '#e8e0d0'}">{k_pct:.1f}%</div>
         <div class="result-odds">{k_odds:.2f}</div></div>""", unsafe_allow_html=True)
         
@@ -251,6 +252,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         Hyökkäyksen wOBA: <b>{vieras_woba:.3f}</b><br>
         SP xFIP: {tulos['vieras_sp_dyn']:.2f} | BP xFIP: {tulos['vieras_bp_dyn']:.2f}<br>
         <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b></span>
+        <b>Momentum-etu: {-tulos['momentum_edge'] * 100:.2f} %</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if v_pct>k_pct else '#e8e0d0'}">{v_pct:.1f}%</div>
         <div class="result-odds">{v_odds:.2f}</div></div>""", unsafe_allow_html=True)
 
