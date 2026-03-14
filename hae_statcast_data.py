@@ -1,25 +1,18 @@
 """
 fetch_statcast.py
 =================
-Hakee MLB Statcast-datan (jokainen syöttö) kaudelta 2025
-pybaseball-kirjastolla pätkittäin ja tallentaa SQLite-kantaan.
-
-Strategia:
-  - Koko kausi pilkotaan enintään 10 päivän paloihin
-  - Jokainen pala haetaan erikseen time.sleep-tauolla
-  - Epäonnistunut pala kirjataan ja ohitetaan (ei kaada koko ajoa)
-  - Kaikki onnistuneet palat yhdistetään ja tallennetaan kantaan
+Hakee MLB Statcast-datan fiksusti (Incremental Update).
+Jos tietokannassa on jo dataa, hakee vain puuttuvat päivät (esim. eilisillan pelit)
+ja lisää ne kantaan. Jos dataa ei ole, hakee kaiken määritellystä alusta asti.
 
 Käyttö:
     pip install pybaseball pandas
     python fetch_statcast.py
-
-Varoitus: Koko kauden haku kestää tyypillisesti 30–90 minuuttia.
 """
 
 import sqlite3
 import time
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 import pandas as pd
 import pybaseball
@@ -27,26 +20,41 @@ import pybaseball
 # ---------------------------------------------------------------------------
 # VAKIOT – muuta näitä tarpeen mukaan
 # ---------------------------------------------------------------------------
-DB_POLKU        = "mlb_historical.db"     # Kohdetietokanta
-TAULU           = "statcast_2025"          # Kohdetaulu
+DB_POLKU        = "mlb_historical.db"      # Kohdetietokanta
+TAULU           = "statcast_2025"          # HUOM: Pidettiin vanha nimi yhteensopivuuden vuoksi!
+OLETUS_ALKU     = date(2025, 2, 15)        # Mistä aloitetaan jos kanta on aivan tyhjä
 
-KAUSI_ALKU      = date(2025, 2, 15)        # Harjoituskauden alku
-KAUSI_LOPPU     = date(2025, 11, 5)        # Pudotuspelien loppu (arvio)
-
-PALAN_KOKO_PV   = 10                       # Päiviä per haku (max ~10–14 suositeltava)
-TAUKO_SEKUNTIA  = 5                        # Tauko hakujen välillä (älä laita alle 3)
+PALAN_KOKO_PV   = 10                       # Päiviä per haku
+TAUKO_SEKUNTIA  = 5                        # Tauko hakujen välillä
 
 # ---------------------------------------------------------------------------
-# APUFUNKTIO: aikavälin pilkkominen paloihin
+# APUFUNKTIO: Tietokannan tilan tarkistus
+# ---------------------------------------------------------------------------
+
+def hae_viimeisin_paivamaara(db_polku: str, taulu: str) -> date | None:
+    """
+    Tarkistaa tietokannasta, mihin asti dataa on jo haettu.
+    Etsii sarakkeesta 'game_date' tuoreimman päivämäärän.
+    """
+    try:
+        yhteys = sqlite3.connect(db_polku)
+        kysely = f"SELECT MAX(game_date) FROM {taulu}"
+        tulos = pd.read_sql_query(kysely, yhteys).iloc[0, 0]
+        yhteys.close()
+        
+        if pd.notna(tulos):
+            # Muutetaan merkkijono (esim '2025-08-15') oikeaksi date-olioksi
+            return datetime.strptime(str(tulos)[:10], "%Y-%m-%d").date()
+    except Exception:
+        # Taulua ei ole olemassa tai sarake puuttuu -> palautetaan None
+        pass
+    return None
+
+# ---------------------------------------------------------------------------
+# APUFUNKTIO: Aikavälin pilkkominen
 # ---------------------------------------------------------------------------
 
 def luo_aikavalit(alku: date, loppu: date, palan_koko: int) -> list[tuple[date, date]]:
-    """
-    Pilkkoo aikavälin [alku, loppu] enintään `palan_koko` päivän paloihin.
-
-    Palauttaa:
-        list[tuple[date, date]] – lista (pala_alku, pala_loppu) -pareista
-    """
     palat = []
     nykyinen = alku
     while nykyinen <= loppu:
@@ -55,18 +63,11 @@ def luo_aikavalit(alku: date, loppu: date, palan_koko: int) -> list[tuple[date, 
         nykyinen = pala_loppu + timedelta(days=1)
     return palat
 
-
 # ---------------------------------------------------------------------------
-# APUFUNKTIO: yksittäisen palan haku
+# APUFUNKTIO: Yksittäisen palan haku
 # ---------------------------------------------------------------------------
 
 def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
-    """
-    Hakee Statcast-datan yhdeltä aikaväliltä pybaseballin avulla.
-
-    Palauttaa:
-        pd.DataFrame jos haku onnistui, None jos epäonnistui.
-    """
     alku_str  = alku.strftime("%Y-%m-%d")
     loppu_str = loppu.strftime("%Y-%m-%d")
 
@@ -74,11 +75,11 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
         df = pybaseball.statcast(
             start_dt=alku_str,
             end_dt=loppu_str,
-            parallel=False,      # Ei rinnakkaishakuja – stabiilimpi
+            parallel=False,
         )
 
         if df is None or df.empty:
-            print(f"     ⚠️  Ei dataa välillä {alku_str} – {loppu_str} (off-season tai tyhjä)")
+            print(f"     ⚠️  Ei dataa välillä {alku_str} – {loppu_str}")
             return None
 
         print(f"     ✅ {alku_str} – {loppu_str}: {len(df):>7,} syöttöä haettu")
@@ -86,66 +87,78 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
 
     except Exception as e:
         print(f"     ❌ VIRHE välillä {alku_str} – {loppu_str}: {type(e).__name__}: {e}")
-        print(f"        → Ohitetaan tämä pala, jatketaan seuraavaan.")
         return None
 
-
 # ---------------------------------------------------------------------------
-# APUFUNKTIO: tallennus tietokantaan
+# APUFUNKTIO: Tallennus
 # ---------------------------------------------------------------------------
 
-def tallenna_kantaan(df: pd.DataFrame, db_polku: str = DB_POLKU) -> None:
+def tallenna_kantaan(df: pd.DataFrame, db_polku: str, taulu: str, tallennus_tapa: str) -> None:
     """
-    Tallentaa yhdistetyn DataFramen SQLite-tietokantaan.
-    Korvaa taulun jos se on jo olemassa.
+    Tallennus tietokantaan.
+    tallennus_tapa = 'replace' (luo uuden) tai 'append' (lisää olemassa olevaan)
     """
     try:
         yhteys = sqlite3.connect(db_polku)
-        # Tallennetaan paloissa muistinkäytön minimoimiseksi (chunksize)
         df.to_sql(
-            TAULU,
+            taulu,
             yhteys,
-            if_exists="replace",
+            if_exists=tallennus_tapa,
             index=False,
             chunksize=10_000,
         )
         yhteys.close()
-        print(f"\n✅ Tallennettu {len(df):,} riviä tauluun '{TAULU}' ({db_polku})")
+        print(f"\n✅ Tallennettu {len(df):,} riviä tauluun '{taulu}' (Mode: {tallennus_tapa})")
 
     except sqlite3.Error as e:
         raise RuntimeError(f"❌ SQLite-virhe tallennuksessa: {e}") from e
-
 
 # ---------------------------------------------------------------------------
 # PÄÄOHJELMA
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    # ── Pybaseballin välimuistin kytkeminen pois – hakee aina tuoreen datan
-    pybaseball.cache.enable()   # Kommentoi pois jos haluat välimuistia
+    pybaseball.cache.enable()
 
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  STATCAST 2025 – MASSIIVINEN DATAHAKU")
+    print(f"  ⚾  STATCAST DATAHAKU (Älykäs päivitys)")
     print(viiva)
-    print(f"  Aikaväli : {KAUSI_ALKU} – {KAUSI_LOPPU}")
-    print(f"  Palan koko: {PALAN_KOKO_PV} päivää")
-    print(f"  Tauko    : {TAUKO_SEKUNTIA} s hakujen välillä")
-    print(f"  Kohde    : {DB_POLKU} → taulu '{TAULU}'")
+
+    tanaan = date.today()
+    viimeisin_kannassa = hae_viimeisin_paivamaara(DB_POLKU, TAULU)
+
+    # Päätellään, mistä asti haetaan ja miten tallennetaan
+    if viimeisin_kannassa:
+        # Haetaan seuraavasta päivästä alkaen
+        haku_alku = viimeisin_kannassa + timedelta(days=1)
+        tallennus_tapa = "append"
+        print(f"  📌 Tietokannassa on dataa päivään {viimeisin_kannassa} asti.")
+        
+        if haku_alku > tanaan:
+            print("  ✅ Data on jo täysin ajan tasalla! Uutta haettavaa ei ole.")
+            print(f"{viiva}\n")
+            exit()
+            
+        print(f"  🚀 Haetaan puuttuvat päivät: {haku_alku} – {tanaan}")
+    else:
+        haku_alku = OLETUS_ALKU
+        tallennus_tapa = "replace"
+        print(f"  ⚠️  Ei aiempaa dataa. Haetaan kaikki alusta asti ({haku_alku} – {tanaan}).")
+
+    haku_loppu = tanaan
+    print(f"  Kohde : {DB_POLKU} → taulu '{TAULU}'")
     print(f"{viiva}\n")
 
     # ── Luo aikavälipalat ──
-    palat = luo_aikavalit(KAUSI_ALKU, KAUSI_LOPPU, PALAN_KOKO_PV)
-    print(f"📦 Paloja yhteensä: {len(palat)}\n")
+    palat = luo_aikavalit(haku_alku, haku_loppu, PALAN_KOKO_PV)
+    print(f"📦 Hakuja tehtävänä yhteensä: {len(palat)}\n")
 
-    # ── Hakusilmukka ──
     onnistuneet: list[pd.DataFrame] = []
     epaonnistuneet: list[tuple[date, date]] = []
 
     for i, (alku, loppu) in enumerate(palat, start=1):
         print(f"[{i:>3}/{len(palat)}] Haetaan {alku} – {loppu} ...", end="  ")
-
         pala_df = hae_pala(alku, loppu)
 
         if pala_df is not None:
@@ -153,28 +166,25 @@ if __name__ == "__main__":
         else:
             epaonnistuneet.append((alku, loppu))
 
-        # Tauko – paitsi viimeisen palan jälkeen
         if i < len(palat):
             time.sleep(TAUKO_SEKUNTIA)
 
-    # ── Yhteenveto hausta ──
+    # ── Yhteenveto ──
     print(f"\n{viiva}")
     print(f"  HAKU VALMIS")
-    print(f"  Onnistuneet palat : {len(onnistuneet)} / {len(palat)}")
+    print(f"  Onnistuneet haut  : {len(onnistuneet)} / {len(palat)}")
     print(f"  Epäonnistuneet    : {len(epaonnistuneet)}")
-    if epaonnistuneet:
-        for (a, b) in epaonnistuneet:
-            print(f"    ✗ {a} – {b}")
     print(viiva)
 
     # ── Yhdistäminen ja tallennus ──
+    # TÄMÄ ON NYT OIKEASSA PAIKASSA (ei enää sisennettynä väärin!)
     if not onnistuneet:
-        print("\n❌ Yhtään datapakettia ei saatu – tarkista verkko ja pybaseball-asennus.")
+        print("\n❌ Yhtään uutta datapakettia ei saatu.")
     else:
         print(f"\n🔗 Yhdistetään {len(onnistuneet)} datapakettia ...")
         yhdistetty = pd.concat(onnistuneet, ignore_index=True)
 
-        # Poistetaan mahdolliset duplikaatit (päivämäärien reunat saattavat overlap)
+        # Poistetaan tuoreimman haun sisäiset duplikaatit
         ennen = len(yhdistetty)
         if "pitch_number" in yhdistetty.columns and "game_pk" in yhdistetty.columns:
             yhdistetty = yhdistetty.drop_duplicates(
@@ -182,26 +192,9 @@ if __name__ == "__main__":
             )
         jalkeen = len(yhdistetty)
         if ennen != jalkeen:
-            print(f"   → Poistettu {ennen - jalkeen:,} duplikaattia")
+            print(f"   → Poistettu {ennen - jalkeen:,} duplikaattia haun sisältä.")
 
-        print(f"   → Yhteensä {len(yhdistetty):,} uniikkia syöttöä")
+        # KUTSUTAAN TALLENNUSTA OIKEIN:
+        tallenna_kantaan(yhdistetty, DB_POLKU, TAULU, tallennus_tapa)
 
-        # Tilastoitu sarakeinfo
-        print(f"   → Sarakkeita: {len(yhdistetty.columns)}")
-        print(f"\n💾 Tallennetaan tietokantaan ...")
-        tallenna_kantaan(yhdistetty)
-
-        # ── Loppuyhteenveto ──
-        print(f"\n{viiva}")
-        print(f"  📊 LOPPUTULOS")
-        print(viiva)
-        print(f"  Rivejä tallennettu : {len(yhdistetty):>10,}")
-        print(f"  Sarakkeita         : {len(yhdistetty.columns):>10,}")
-        if "game_date" in yhdistetty.columns:
-            print(f"  Päivämääräväli     : {yhdistetty['game_date'].min()} – {yhdistetty['game_date'].max()}")
-        if "player_name" in yhdistetty.columns:
-            print(f"  Uniikkeja pelaajia : {yhdistetty['player_name'].nunique():>10,}")
-        if "home_team" in yhdistetty.columns:
-            print(f"  Uniikkeja joukkueita: {yhdistetty['home_team'].nunique():>9,}")
-        print(viiva)
-        print("\n🎉 Statcast-data valmis käytettäväksi!\n")
+        print("\n🎉 Päivitys onnistui!")
