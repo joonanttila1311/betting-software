@@ -40,7 +40,7 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, df, koti_sp, koti_bp, koti_woba
         
         # Käytetään kätisyyden mukaan valittua xFIP:tä jos mahdollista, muuten All
         sp_xfip = sp_data.get("xFIP_All", LIIGA_XFIP_KA)
-        bp_xfip = bp_data.get("vs_R", LIIGA_XFIP_KA) # Yksinkertaistus BP:lle
+        bp_xfip = bp_data.get("All", LIIGA_XFIP_KA)
         
         return (sp_xfip * sp_paino) + (bp_xfip * bp_paino)
 
