@@ -97,10 +97,12 @@ def lataa_syottajat():
 @st.cache_data
 def lataa_bullpenit():
     conn = sqlite3.connect(DB_POLKU)
-    df = pd.read_sql_query("SELECT Team, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R FROM bullpen_statcast", conn)
+    # LISÄTTY: Haetaan myös Bullpen_xFIP_All
+    df = pd.read_sql_query("SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R FROM bullpen_statcast", conn)
     conn.close()
     df = df.set_index("Team")
-    return {team: {"vs_L": row["Bullpen_xFIP_vs_L"], "vs_R": row["Bullpen_xFIP_vs_R"]} for team, row in df.iterrows()}
+    # LISÄTTY: Tallennetaan "All" sanakirjaan
+    return {team: {"All": row["Bullpen_xFIP_All"], "vs_L": row["Bullpen_xFIP_vs_L"], "vs_R": row["Bullpen_xFIP_vs_R"]} for team, row in df.iterrows()}
 
 @st.cache_data
 def lataa_rosterit():
@@ -204,8 +206,8 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
     koti_sp_data = optiot_syottajat[koti_sp_nimi]
     vieras_sp_data = optiot_syottajat[vieras_sp_nimi]
     
-    koti_bp_data = bp_dict.get(koti_lyh, {"vs_L": 3.80, "vs_R": 3.80})
-    vieras_bp_data = bp_dict.get(vieras_lyh, {"vs_L": 3.80, "vs_R": 3.80})
+    koti_bp_data = bp_dict.get(koti_lyh, {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80})
+    vieras_bp_data = bp_dict.get(vieras_lyh, {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80})
     
     koti_sp_arm = koti_sp_data.get("Katisyys", "R")
     vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
