@@ -141,7 +141,7 @@ def pura_joukkue(valinta):
     return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
 
 def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, joukkue_lyh: str, vastus_sp_kasisyys: str) -> float:
-    split = f"wOBA_vs_{vastus_sp_kasisyys}"
+    split = "wOBA_All" if vastus_sp_kasisyys == "All" else f"wOBA_vs_{vastus_sp_kasisyys}"
     joukkue_roster = rosterit.get(joukkue_lyh, [])
     nimi_id = {p["name"]: p["id"] for p in joukkue_roster}
 
@@ -212,19 +212,25 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
     koti_sp_arm = koti_sp_data.get("Katisyys", "R")
     vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
 
-    # Dynaaminen wOBA vastustajan SP:n mukaan
-    koti_woba = laske_joukkueen_woba(koti_yh, koti_pe, koti_lyh, vieras_sp_arm)
-    vieras_woba = laske_joukkueen_woba(vieras_yh, vieras_pe, vieras_lyh, koti_sp_arm)
+    # 1. Lasketaan hyökkäys Aloitussyöttäjää vastaan (Kätisyys)
+    koti_woba_sp = laske_joukkueen_woba(koti_yh, koti_pe, koti_lyh, vieras_sp_arm)
+    vieras_woba_sp = laske_joukkueen_woba(vieras_yh, vieras_pe, vieras_lyh, koti_sp_arm)
 
-    # MOOTTORIKUTSU v5.0
+    # 2. Lasketaan hyökkäys Bullpeniä vastaan (Käytetään "All")
+    koti_woba_bp = laske_joukkueen_woba(koti_yh, koti_pe, koti_lyh, "All")
+    vieras_woba_bp = laske_joukkueen_woba(vieras_yh, vieras_pe, vieras_lyh, "All")
+
+    # MOOTTORIKUTSU v5.2 (Lisätty bp-wobat uusina parametreina)
     tulos = laske_todennakoisyys(
         koti_koko, vieras_koko,
         koti_sp=koti_sp_data, 
         koti_bp=koti_bp_data, 
-        koti_woba=koti_woba,
+        koti_woba=koti_woba_sp,
         vieras_sp=vieras_sp_data, 
         vieras_bp=vieras_bp_data, 
-        vieras_woba=vieras_woba
+        vieras_woba=vieras_woba_sp,
+        koti_woba_bp=koti_woba_bp,      # UUSI: Bullpen-vaiheen wOBA
+        vieras_woba_bp=vieras_woba_bp
     )
 
     k_pct, v_pct = tulos["koti_voitto_tod"] * 100, tulos["vieras_voitto_tod"] * 100
@@ -238,7 +244,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         st.markdown(f"""<div class="result-card"><div class="result-team">{koti_koko}</div>
         <div class="fip-badge">{koti_sp_data['Name']}</div><br>
         <span style="color:#7a6e5f;font-size:0.85rem">
-        Hyökkäyksen wOBA: <b>{koti_woba:.3f}</b><br>
+        Hyökkäyksen wOBA: <b>{tulos['koti_woba_total']:.3f}</b><br>
         SP xFIP: {tulos['koti_sp_dyn']:.2f} | BP xFIP: {tulos['koti_bp_dyn']:.2f}<br>
         <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b></span>
         <b>Momentum-etu: {tulos['momentum_edge'] * 100:.2f} %</b></span>
@@ -249,7 +255,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         st.markdown(f"""<div class="result-card"><div class="result-team">{vieras_koko}</div>
         <div class="fip-badge">{vieras_sp_data['Name']}</div><br>
         <span style="color:#7a6e5f;font-size:0.85rem">
-        Hyökkäyksen wOBA: <b>{vieras_woba:.3f}</b><br>
+        Hyökkäyksen wOBA: <b>{tulos['vieras_woba_total']:.3f}</b><br>
         SP xFIP: {tulos['vieras_sp_dyn']:.2f} | BP xFIP: {tulos['vieras_bp_dyn']:.2f}<br>
         <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b></span>
         <b>Momentum-etu: {-tulos['momentum_edge'] * 100:.2f} %</b></span>
