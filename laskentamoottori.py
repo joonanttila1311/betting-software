@@ -8,6 +8,7 @@ Sisältää 1% Momentum- ja H2H-painotuksen
 import sqlite3
 import pandas as pd
 import numpy as np
+from datetime import date
 
 DB_POLKU = "mlb_historical.db"
 LIIGA_XFIP_KA = 3.80
