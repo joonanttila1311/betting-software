@@ -82,7 +82,21 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
             print(f"     ⚠️  Ei dataa välillä {alku_str} – {loppu_str}")
             return None
 
-        print(f"     ✅ {alku_str} – {loppu_str}: {len(df):>7,} syöttöä haettu")
+        # --- UUSI SUODATIN ALKAA ---
+        alkup_pituus = len(df)
+        if 'game_type' in df.columns:
+            # Pudotetaan pois harjoituspelit ('S' = Spring Training, 'E' = Exhibition)
+            df = df[~df['game_type'].isin(['S', 'E'])]
+        
+        # Jos kaikki pelit olivat harjoituspelejä, df saattaa nyt olla tyhjä
+        if df.empty:
+            print(f"     ⚠️  {alku_str} – {loppu_str}: Vain harjoituspelejä. Ohitetaan.")
+            return None
+        # --- UUSI SUODATIN LOPPUU ---
+
+        poistettu_maara = alkup_pituus - len(df)
+        # Muokkasin tulostusta hieman, jotta se näyttää myös kuinka monta harjoituspelin syöttöä heitettiin pois!
+        print(f"     ✅ {alku_str} – {loppu_str}: {len(df):>7,} syöttöä haettu (Roskaa poistettu: {poistettu_maara})")
         return df
 
     except Exception as e:
