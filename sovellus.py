@@ -246,7 +246,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         <span style="color:#7a6e5f;font-size:0.85rem">
         Hyökkäyksen wOBA: <b>{tulos['koti_woba_total']:.3f}</b><br>
         SP xFIP: {tulos['koti_sp_dyn']:.2f} | BP xFIP: {tulos['koti_bp_dyn']:.2f}<br>
-        <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b></span>
+        <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b><br>
         <b>Momentum-etu: {tulos['momentum_edge'] * 100:.2f} %</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if k_pct>=v_pct else '#e8e0d0'}">{k_pct:.1f}%</div>
         <div class="result-odds">{k_odds:.2f}</div></div>""", unsafe_allow_html=True)
@@ -257,7 +257,7 @@ if st.button("⚡ LASKE TODENNÄKÖISYYS"):
         <span style="color:#7a6e5f;font-size:0.85rem">
         Hyökkäyksen wOBA: <b>{tulos['vieras_woba_total']:.3f}</b><br>
         SP xFIP: {tulos['vieras_sp_dyn']:.2f} | BP xFIP: {tulos['vieras_bp_dyn']:.2f}<br>
-        <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b></span>
+        <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b><br>
         <b>Momentum-etu: {-tulos['momentum_edge'] * 100:.2f} %</b></span>
         <div class="result-pct" style="color:{'#c8a84b' if v_pct>k_pct else '#e8e0d0'}">{v_pct:.1f}%</div>
         <div class="result-odds">{v_odds:.2f}</div></div>""", unsafe_allow_html=True)
