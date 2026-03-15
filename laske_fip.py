@@ -177,41 +177,70 @@ def lisaa_joukkue(df: pd.DataFrame) -> pd.DataFrame:
 # 4. TIME DECAY -PAINOJEN LASKENTA
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 4. TIME DECAY -PAINOJEN LASKENTA (TALVIVERO-PÄIVITYS)
+# ---------------------------------------------------------------------------
+
 def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     """
     Laskee jokaiselle riville aikapainon 60 päivän puoliintumisajalla.
-
-    Logiikka:
-        max_date = koko datan tuorein game_date
-        days_ago = (max_date - game_date).days
-        weight   = 0.5 ** (days_ago / 60.0)
-
-    Tuorein peli saa painon 1.0, 60 päivää vanha 0.5,
-    120 päivää vanha 0.25 jne.
-
-    Lisää DataFrameen sarakkeet: 'game_date' (datetime), 'days_ago', 'weight'.
+    Sisältää dynaamisen 30 päivän talviveron (Offseason Freeze).
     """
+    import numpy as np # Varmistetaan että numpy on saatavilla tässä
+    
     df = df.copy()
 
-    # Muunnetaan game_date datetime-muotoon (toleroidaan eri formaatit)
+    # Muunnetaan game_date datetime-muotoon
     df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
-
-    # Poistetaan rivit joilla päivämäärä ei parsittunut
     puuttuvat = df["game_date"].isna().sum()
     if puuttuvat > 0:
         print(f"   ⚠️  Poistettu {puuttuvat:,} riviä joilla game_date puuttuu/virheellinen.")
         df = df.dropna(subset=["game_date"])
 
-    # Tuorein päivämäärä referenssipisteenä
-    max_date = df["game_date"].max()
-    print(f"   → Tuorein peli: {max_date.date()}  |  Vanhin: {df['game_date'].min().date()}")
+    # --- UUSI TALVIVERO-LOGIIKKA ALKAA ---
+    nykyhetki = pd.to_datetime('today')
+    nykyinen_vuosi = nykyhetki.year
 
-    df["days_ago"] = (max_date - df["game_date"]).dt.days
+    menneet_kaudet = df[df['game_date'].dt.year < nykyinen_vuosi]
+    nykyinen_kausi = df[df['game_date'].dt.year == nykyinen_vuosi]
+
+    # Lasketaan aluksi raaka kalenteri-ikä nykyhetkestä
+    df["days_ago"] = (nykyhetki - df["game_date"]).dt.days
+
+    if not menneet_kaudet.empty:
+        t_last = menneet_kaudet['game_date'].max()
+
+        if not nykyinen_kausi.empty:
+            tosipelit = nykyinen_kausi[nykyinen_kausi['game_date'].dt.month >= 3]
+            tosipelit = tosipelit[tosipelit['game_date'].dt.day >= 20]
+            
+            if not tosipelit.empty:
+                t_first = tosipelit['game_date'].min()
+                offseason_tauko = max(0, (t_first - t_last).days - 30)
+            else:
+                offseason_tauko = max(0, (nykyhetki - t_last).days - 30)
+        else:
+            offseason_tauko = max(0, (nykyhetki - t_last).days - 30)
+
+        # Vähennetään tauko menneen kauden peleiltä
+        df['days_ago'] = np.where(
+            df['game_date'].dt.year < nykyinen_vuosi,
+            df['days_ago'] - offseason_tauko,
+            df['days_ago']
+        )
+
+    # Varmistetaan ettei ikä mene negatiiviseksi ja lasketaan paino
+    df['days_ago'] = df['days_ago'].clip(lower=0)
     df["weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
+    # --- UUSI LOGIIKKA LOPPUU ---
 
     # Tilastoinfo painotuksista
     w_min  = df["weight"].min()
     w_mean = df["weight"].mean()
+    max_date_print = df['game_date'].max().date()
+    min_date_print = df['game_date'].min().date()
+    
+    print(f"   → Tuorein peli: {max_date_print}  |  Vanhin: {min_date_print}")
     print(
         f"   → Paino-alue: {w_min:.4f} – 1.0000  |  "
         f"Keskiarvo: {w_mean:.4f}  |  "
