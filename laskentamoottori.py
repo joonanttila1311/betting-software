@@ -219,20 +219,43 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
     koti_tod = 1 / (1 + np.exp(-5.0 * ero))
     vieras_tod = 1 - koti_tod
 
-    # JUOKSUODOTUS (Sama kahden vaiheen logiikka)
+    # -------------------------------------------------------------
+    # 1. JUOKSUODOTUS RAAKANA (Taito: wOBA vs xFIP)
+    # Tässä kohtaa kerto-lasku toimii oikein: huono xFIP (iso luku) antaa vastustajalle juoksuja.
+    # -------------------------------------------------------------
     perus_odotus = 8.6 
+    
+    # Koti odotus raakana
     k_odotus_sp = (perus_odotus / 2) * (koti_woba / LIIGA_WOBA_KA) * (vieras_sp_xfip / LIIGA_XFIP_KA)
     k_odotus_bp = (perus_odotus / 2) * (koti_woba_bp / LIIGA_WOBA_KA) * (vieras_bp_xfip / LIIGA_XFIP_KA)
     k_odotus_raaka = (k_odotus_sp * vieras_sp_paino) + (k_odotus_bp * vieras_bp_paino)
 
+    # Vieras odotus raakana
     v_odotus_sp = (perus_odotus / 2) * (vieras_woba / LIIGA_WOBA_KA) * (koti_sp_xfip / LIIGA_XFIP_KA)
     v_odotus_bp = (perus_odotus / 2) * (vieras_woba_bp / LIIGA_WOBA_KA) * (koti_bp_xfip / LIIGA_XFIP_KA)
     v_odotus_raaka = (v_odotus_sp * koti_sp_paino) + (v_odotus_bp * koti_bp_paino)
+    
+    # -------------------------------------------------------------
+    # 2. KOTIETU, MOMENTUM JA YMPÄRISTÖ (Sää/Stadion)
+    # -------------------------------------------------------------
+    # Kotietu antaa perinteisesti kotiin pienen edun juoksuina (n. +0.20 juoksua)
+    k_odotus_raaka += 0.20
+    
+    # Momentum (käännetään suoraan juoksuiksi, n. max +/- 0.15 juoksua)
+    momentum_edge_raaka = hae_momentum(koti_nimi, vieras_nimi)
+    k_odotus_raaka += (momentum_edge_raaka * 10.0)
 
+    # Ympäristön (Stadion + Sää) lopullinen isku!
     k_odotus = k_odotus_raaka * ymparisto_kerroin
     v_odotus = v_odotus_raaka * ymparisto_kerroin
-    
     total_odotus = k_odotus + v_odotus
+
+    # -------------------------------------------------------------
+    # 3. LOPPUTULOS: VOITTOTODENNÄKÖISYYS (Pythagorean Expectation)
+    # Vegas-standardi tapa kääntää juoksut prosenteiksi (eksponentti 1.83)
+    # -------------------------------------------------------------
+    koti_tod = (k_odotus ** 1.83) / ((k_odotus ** 1.83) + (v_odotus ** 1.83))
+    vieras_tod = 1.0 - koti_tod
 
     # Lasketaan yhdistetty wOBA UI:ta varten näyttöön
     koti_woba_total = (koti_woba * vieras_sp_paino) + (koti_woba_bp * vieras_bp_paino)
@@ -250,10 +273,9 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
         "vieras_sp_dyn": vieras_sp_xfip,
         "vieras_bp_dyn": vieras_bp_xfip,
         "vieras_total_xfip": (vieras_sp_xfip * vieras_sp_paino) + (vieras_bp_xfip * vieras_bp_paino),
-        "momentum_edge": momentum,
+        "momentum_edge": momentum_edge_raaka,
         "koti_woba_total": koti_woba_total,
         "vieras_woba_total": vieras_woba_total,
-        # Palautetaan käyttöliittymälle uudet ympäristödatat:
         "stadion_nimi": stadion["Stadion"],
         "stadion_pf": stadion["PF"],
         "onko_dome": stadion["Dome"],
