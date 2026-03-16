@@ -14,6 +14,79 @@ DB_POLKU = "mlb_historical.db"
 LIIGA_XFIP_KA = 3.80
 LIIGA_WOBA_KA = 0.310
 
+# ---------------------------------------------------------------------------
+# STADIONIT JA SÄÄ (Park Factors 2026 & Weather Modifiers)
+# PF > 1.00 suosii lyöjiä (Over), PF < 1.00 suosii syöttäjiä (Under).
+# Dome = True tarkoittaa, että säällä ei ole vaikutusta.
+# ---------------------------------------------------------------------------
+STADION_DATA = {
+    "COL": {"Stadion": "Coors Field", "PF": 1.14, "Dome": False},
+    "CIN": {"Stadion": "Great American Ball Park", "PF": 1.06, "Dome": False},
+    "BOS": {"Stadion": "Fenway Park", "PF": 1.05, "Dome": False},
+    "CWS": {"Stadion": "Guaranteed Rate Field", "PF": 1.02, "Dome": False},
+    "LAA": {"Stadion": "Angel Stadium", "PF": 1.02, "Dome": False},
+    "NYY": {"Stadion": "Yankee Stadium", "PF": 1.01, "Dome": False},
+    "CHC": {"Stadion": "Wrigley Field", "PF": 1.01, "Dome": False},
+    "ATL": {"Stadion": "Truist Park", "PF": 1.01, "Dome": False},
+    "PHI": {"Stadion": "Citizens Bank Park", "PF": 1.01, "Dome": False},
+    "HOU": {"Stadion": "Minute Maid Park", "PF": 1.01, "Dome": True},
+    "LAD": {"Stadion": "Dodger Stadium", "PF": 1.00, "Dome": False},
+    "WSH": {"Stadion": "Nationals Park", "PF": 1.00, "Dome": False},
+    "MIN": {"Stadion": "Target Field", "PF": 1.00, "Dome": False},
+    "TEX": {"Stadion": "Globe Life Field", "PF": 1.00, "Dome": True},
+    "TOR": {"Stadion": "Rogers Centre", "PF": 1.00, "Dome": True},
+    "AZ":  {"Stadion": "Chase Field", "PF": 1.00, "Dome": True},
+    "KC":  {"Stadion": "Kauffman Stadium", "PF": 0.99, "Dome": False},
+    "CLE": {"Stadion": "Progressive Field", "PF": 0.99, "Dome": False},
+    "MIL": {"Stadion": "American Family Field", "PF": 0.99, "Dome": True},
+    "BAL": {"Stadion": "Oriole Park", "PF": 0.98, "Dome": False},
+    "TB":  {"Stadion": "Tropicana Field", "PF": 0.98, "Dome": True},
+    "PIT": {"Stadion": "PNC Park", "PF": 0.98, "Dome": False},
+    "DET": {"Stadion": "Comerica Park", "PF": 0.97, "Dome": False},
+    "NYM": {"Stadion": "Citi Field", "PF": 0.97, "Dome": False},
+    "MIA": {"Stadion": "loanDepot park", "PF": 0.97, "Dome": True},
+    "SD":  {"Stadion": "Petco Park", "PF": 0.96, "Dome": False},
+    "STL": {"Stadion": "Busch Stadium", "PF": 0.96, "Dome": False},
+    "SF":  {"Stadion": "Oracle Park", "PF": 0.95, "Dome": False},
+    "OAK": {"Stadion": "Oakland Coliseum", "PF": 0.95, "Dome": False},
+    "ATH": {"Stadion": "Sutter Health Park", "PF": 0.95, "Dome": False}, # Athletics 2026
+    "SEA": {"Stadion": "T-Mobile Park", "PF": 0.93, "Dome": False},
+}
+
+def laske_saa_kerroin(lampotila_c: int, tuuli_ms: int, tuuli_suunta: str, is_dome: bool) -> float:
+    """
+    Laskee Vegas-mallin mukaisen sääkertoimen.
+    Jos stadionilla on katto (Dome), palautetaan aina neutraali 1.00.
+    """
+    if is_dome:
+        return 1.00
+
+    kerroin = 1.00
+
+    # 1. Lämpötilan vaikutus (Perus 20 °C)
+    if lampotila_c >= 35:
+        kerroin += 0.075
+    elif lampotila_c >= 30:
+        kerroin += 0.050
+    elif lampotila_c >= 25:
+        kerroin += 0.025
+    elif lampotila_c < 10:
+        kerroin -= 0.050
+    elif lampotila_c < 15:
+        kerroin -= 0.025
+
+    # 2. Tuulen vaikutus
+    if tuuli_ms >= 3 and tuuli_suunta != "Sivutuuli / Tyyni":
+        voimakkuus = 0.10 if tuuli_ms >= 6 else 0.05
+        
+        if tuuli_suunta == "Ulos katsomoon":
+            kerroin += voimakkuus
+        elif tuuli_suunta == "Sisään pesälle":
+            kerroin -= voimakkuus
+
+    return kerroin
+
+
 def hae_momentum(koti_nimi, vieras_nimi):
     """
     Lukee ottelutulokset-taulusta joukkueiden historian.
@@ -78,11 +151,17 @@ def hae_momentum(koti_nimi, vieras_nimi):
     # Palautetaan yhteinen momentum-etu kotijoukkueen näkökulmasta
     return h2h_etu + kunto_etu
 
-def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vieras_sp, vieras_bp, vieras_woba, koti_woba_bp=None, vieras_woba_bp=None):
+def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vieras_sp, vieras_bp, vieras_woba, koti_woba_bp=None, vieras_woba_bp=None, lampotila_c: int = 20, tuuli_ms: int = 0, tuuli_suunta: str = "Sivutuuli / Tyyni", koti_lyh: str = "NYY") -> dict:
     """
     Laskee ottelun lopputuloksen kahdessa dynaamisessa vaiheessa: 
     Aloitussyöttäjä-vaihe ja Bullpen-vaihe.
     """
+    # 1. Haetaan stadionin tiedot sanakirjasta (Oletus neutraali 1.00, jos ei löydy)
+    stadion = STADION_DATA.get(koti_lyh, {"Stadion": "Tuntematon", "PF": 1.00, "Dome": False})
+    # 2. Lasketaan lopullinen ympäristökerroin
+    saa_kerroin = laske_saa_kerroin(lampotila_c, tuuli_ms, tuuli_suunta, stadion["Dome"])
+    ymparisto_kerroin = stadion["PF"] * saa_kerroin
+
     # TURVAVERKKO: Jos uutta BP-wobaa ei syötetä, käytetään vanhaa yhtenäistä tapaa
     if koti_woba_bp is None: koti_woba_bp = koti_woba
     if vieras_woba_bp is None: vieras_woba_bp = vieras_woba
@@ -144,11 +223,14 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
     perus_odotus = 8.6 
     k_odotus_sp = (perus_odotus / 2) * (koti_woba / LIIGA_WOBA_KA) * (vieras_sp_xfip / LIIGA_XFIP_KA)
     k_odotus_bp = (perus_odotus / 2) * (koti_woba_bp / LIIGA_WOBA_KA) * (vieras_bp_xfip / LIIGA_XFIP_KA)
-    k_odotus = (k_odotus_sp * vieras_sp_paino) + (k_odotus_bp * vieras_bp_paino)
+    k_odotus_raaka = (k_odotus_sp * vieras_sp_paino) + (k_odotus_bp * vieras_bp_paino)
 
     v_odotus_sp = (perus_odotus / 2) * (vieras_woba / LIIGA_WOBA_KA) * (koti_sp_xfip / LIIGA_XFIP_KA)
     v_odotus_bp = (perus_odotus / 2) * (vieras_woba_bp / LIIGA_WOBA_KA) * (koti_bp_xfip / LIIGA_XFIP_KA)
-    v_odotus = (v_odotus_sp * koti_sp_paino) + (v_odotus_bp * koti_bp_paino)
+    v_odotus_raaka = (v_odotus_sp * koti_sp_paino) + (v_odotus_bp * koti_bp_paino)
+
+    k_odotus = k_odotus_raaka * ymparisto_kerroin
+    v_odotus = v_odotus_raaka * ymparisto_kerroin
     
     total_odotus = k_odotus + v_odotus
 
@@ -170,5 +252,11 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
         "vieras_total_xfip": (vieras_sp_xfip * vieras_sp_paino) + (vieras_bp_xfip * vieras_bp_paino),
         "momentum_edge": momentum,
         "koti_woba_total": koti_woba_total,
-        "vieras_woba_total": vieras_woba_total
+        "vieras_woba_total": vieras_woba_total,
+        # Palautetaan käyttöliittymälle uudet ympäristödatat:
+        "stadion_nimi": stadion["Stadion"],
+        "stadion_pf": stadion["PF"],
+        "onko_dome": stadion["Dome"],
+        "saa_kerroin": saa_kerroin,
+        "ymparisto_kerroin": ymparisto_kerroin
     }
