@@ -1,15 +1,10 @@
 """
-app.py  –  MLB Vedonlyönti-UI  v9.0
+app.py  –  MLB Vedonlyönti-UI  v9.2
 ====================================
-Pohjana v8.0 (Tabs + Seuranta).
-v9.0 lisäykset:
-  - STADION_DATA tuotu laskentamoottorista
-  - Sää- ja stadionosio ennen Laske-nappia (lämpötila, tuuli, dome-lukitus)
-  - saved_inputs tallentaa säätiedot + koti_lyh
-  - laske_todennakoisyys saa uudet parametrit: lampotila_c, tuuli_ms, tuuli_suunta, koti_lyh
-  - detail_card_html näyttää oikean stadionin nimen kotijoukkueen kortissa
-  - data_editor: use_container_width → width="stretch"
-SÄÄNTÖ: saved_inputs-rakennetta ei rikottu, laskentalogiikka muuttumaton.
+v9.2: "Vapaat markkinat" -päivitys.
+  - Syöttäjien ja lyöjien valikoista poistettu joukkuerajoitukset ja -lyhenteet.
+  - Pelaajia voi siirtää vapaasti joukkueesta toiseen ilman että wOBA/xFIP-matematiikka kärsii.
+  - Globaali pelaajarekisteri (kaikki_lyojat_id) varmistaa ID-numeroiden löytymisen.
 """
 
 import csv
@@ -52,7 +47,6 @@ JSON_POLKU    = "rosterit_2026.json"
 CSV_POLKU     = "tallennetut_pelit.csv"
 LIIGA_WOBA_KA = 0.310
 
-# CSV-sarakkeet (kiinteä järjestys)
 CSV_SARAKKEET = [
     "Pvm", "Koti", "Vieras",
     "Koti %", "Vieras %",
@@ -61,7 +55,6 @@ CSV_SARAKKEET = [
     "Koti tulos", "Vieras tulos",
 ]
 
-# Tuulen suunta -optiot (UI-teksti → moottorin avain)
 TUULI_OPTIOT = [
     "Sivutuuli / Tyyni",
     "Ulos katsomoon",
@@ -69,7 +62,7 @@ TUULI_OPTIOT = [
 ]
 
 # ────────────────────────────────────────────────────────────────────────────
-# CSS  (identtinen v8.0:n kanssa)
+# CSS
 # ────────────────────────────────────────────────────────────────────────────
 
 st.markdown("""
@@ -90,8 +83,6 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; }
 div.stButton > button { width: 100%; background-color: #c8a84b; color: #000; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; }
 div.stButton > button:hover { background-color: #e0bf60; }
 .warn { color: #e8b84b; font-size: 0.85rem; margin-top: -10px; margin-bottom: 10px; }
-
-/* Lisätiedot-kortit */
 .detail-card { background: #0f0f12; border: 1px solid #2a2830; border-radius: 6px; padding: 1.2rem 1.4rem; margin-top: 0.5rem; }
 .detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 0.1em; color: #c8a84b; margin-bottom: 0.7rem; border-bottom: 1px solid #2a2830; padding-bottom: 0.4rem; }
 .detail-row { display: flex; justify-content: space-between; padding: 0.28rem 0; border-bottom: 1px solid #1e1c22; font-size: 0.88rem; }
@@ -100,29 +91,19 @@ div.stButton > button:hover { background-color: #e0bf60; }
 .detail-val { color: #e8e0d0; font-weight: 500; }
 .detail-val.green { color: #4bc84b; }
 .detail-val.gold  { color: #c8a84b; }
-.detail-val.dim   { color: #5a5450; font-style: italic; }
-
-/* Sää-osio */
 .weather-box { background: #0d1210; border: 1px solid #1e2e20; border-radius: 6px; padding: 1rem 1.4rem; margin-bottom: 1rem; }
 .weather-title { font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 0.12em; color: #5a7a50; margin-bottom: 0.6rem; }
 .stadion-info { font-size: 0.88rem; color: #7a6e5f; margin-bottom: 0.7rem; line-height: 1.6; }
 .stadion-info b { color: #a0c890; }
 .dome-badge { display: inline-block; background: #101828; border: 1px solid #1e3050; padding: 0.1rem 0.5rem; font-size: 0.78rem; color: #5090d0; border-radius: 3px; margin-left: 0.4rem; }
 .outdoor-badge { display: inline-block; background: #0e1a10; border: 1px solid #1e3820; padding: 0.1rem 0.5rem; font-size: 0.78rem; color: #60a860; border-radius: 3px; margin-left: 0.4rem; }
-
-/* Tallenna-nappi erillinen tyyli */
-.save-btn > div > button {
-    background-color: #1a3a1a !important;
-    color: #7ec870 !important;
-    border: 1px solid #2a5a2a !important;
-    font-size: 1.1rem !important;
-}
+.save-btn > div > button { background-color: #1a3a1a !important; color: #7ec870 !important; border: 1px solid #2a5a2a !important; font-size: 1.1rem !important; }
 .save-btn > div > button:hover { background-color: #224a22 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────
-# OTSIKKO  (yhteinen molemmille välilehdille)
+# OTSIKKO
 # ────────────────────────────────────────────────────────────────────────────
 
 st.markdown(
@@ -132,7 +113,7 @@ st.markdown(
 )
 
 # ────────────────────────────────────────────────────────────────────────────
-# DATAN LATAUS  (identtinen v8.0:n kanssa, ei muutoksia)
+# DATAN LATAUS
 # ────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data
@@ -171,8 +152,9 @@ def lataa_syottajat():
         katisyys = r.get("p_throws", "R")
         if pd.isna(katisyys):
             katisyys = "R"
+        # POISTETTU JOUKKUEEN LYHENNE NIMEN PERÄSTÄ!
         avain = (
-            f"{r['Name']} ({r['Team']}) | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
+            f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
         )
         optiot[avain] = {
             "xFIP_All": r["xFIP_All"],
@@ -240,7 +222,23 @@ if not tiimit or not optiot_syottajat or not rosterit:
     st.stop()
 
 # ────────────────────────────────────────────────────────────────────────────
-# APUFUNKTIOT  (identtiset v8.0:n kanssa + uudet tallennusfunktiot)
+# GLOBAALI PELAAJAREKISTERI (Uusi v9.2)
+# ────────────────────────────────────────────────────────────────────────────
+# Rakennetaan yksi iso sanakirja (Nimi -> ID), johon on kerätty kaikki pelaajat
+# kaikista joukkueista. Näin wOBA-matematiikka löytää oikean ID:n, vaikka
+# pelaaja olisi juuri kaupattu toiseen tiimiin.
+
+kaikki_lyojat_id = {}
+for t_lyh, pelaajat in rosterit.items():
+    for p in pelaajat:
+        kaikki_lyojat_id[p["name"]] = p["id"]
+
+# Aakkosellinen lista puhtaita nimiä alasvetovalikkoihin
+kaikki_lyojat_nimet = sorted(list(kaikki_lyojat_id.keys()))
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# APUFUNKTIOT
 # ────────────────────────────────────────────────────────────────────────────
 
 def pura_joukkue(valinta: str) -> tuple[str, str]:
@@ -248,21 +246,20 @@ def pura_joukkue(valinta: str) -> tuple[str, str]:
     return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
 
 
-def laske_joukkueen_woba(
-    yh_nimet: list, pe_nimet: list, joukkue_lyh: str, vastus_sp_kasisyys: str
-) -> float:
+def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_kasisyys: str) -> float:
+    """
+    Laskee joukkueen yhdistetyn wOBA:n.
+    HUOM: Etsii ID:t globaalista kaikki_lyojat_id -sanakirjasta!
+    """
     split = (
         "wOBA_All" if vastus_sp_kasisyys == "All"
         else f"wOBA_vs_{vastus_sp_kasisyys}"
     )
-    joukkue_roster = rosterit.get(joukkue_lyh, [])
-    nimi_id = {p["name"]: p["id"] for p in joukkue_roster}
 
     def hae_arvot(nimet):
         lst = []
-        for n in nimet:
-            p_clean = n.split(" (")[0]
-            pid = nimi_id.get(p_clean)
+        for puhtaanimi in nimet:
+            pid = kaikki_lyojat_id.get(puhtaanimi)
             if pid and not df_lyojat.empty and pid in df_lyojat.index:
                 v = df_lyojat.loc[pid].get(
                     split, df_lyojat.loc[pid].get("wOBA_All")
@@ -279,31 +276,26 @@ def laske_joukkueen_woba(
     return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)
 
 
-def filtteroi_syottajat(joukkue_lyh: str) -> list[str]:
-    omat = [k for k in optiot_syottajat.keys() if f"({joukkue_lyh})" in k]
-    return omat if omat else ["(Ei syöttäjiä)"]
+def hae_kaikki_syottajat() -> list[str]:
+    kaikki = list(optiot_syottajat.keys())
+    return kaikki if kaikki else ["(Ei syöttäjiä)"]
 
 
 # ── Tallennusfunktiot ────────────────────────────────────────────────────────
 
 def varmista_csv():
-    """Luo CSV-tiedosto otsikkorivineen jos sitä ei vielä ole."""
     if not Path(CSV_POLKU).exists():
         with open(CSV_POLKU, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=CSV_SARAKKEET)
             writer.writeheader()
 
-
 def tallenna_peli(rivi: dict):
-    """Lisää yhden pelin rivin CSV-tiedostoon."""
     varmista_csv()
     with open(CSV_POLKU, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_SARAKKEET)
         writer.writerow(rivi)
 
-
 def lataa_seuranta_df() -> pd.DataFrame:
-    """Lataa CSV seuranta-DataFrameksi. Lisää puuttuvat sarakkeet."""
     varmista_csv()
     df = pd.read_csv(CSV_POLKU, dtype=str)
     for col in ("Koti tulos", "Vieras tulos"):
@@ -314,9 +306,7 @@ def lataa_seuranta_df() -> pd.DataFrame:
             df[col] = ""
     return df[CSV_SARAKKEET]
 
-
 def tallenna_seuranta_df(df: pd.DataFrame):
-    """Kirjoittaa koko DataFrame:n takaisin CSV:ksi."""
     df.to_csv(CSV_POLKU, index=False, encoding="utf-8")
 
 
@@ -332,7 +322,6 @@ tab_analyysi, tab_seuranta = st.tabs(["⚾ Uusi Analyysi", "📂 Seuranta"])
 
 with tab_analyysi:
 
-    # ── Joukkueiden valinta ──────────────────────────────────────────────────
     c1, c2, c3 = st.columns([10, 1, 10])
 
     with c1:
@@ -340,21 +329,24 @@ with tab_analyysi:
         koti_valinta  = st.selectbox("Joukkue", tiimit, index=0, key="k_team")
         koti_koko, koti_lyh = pura_joukkue(koti_valinta)
         koti_sp_nimi  = st.selectbox(
-            "Aloitussyöttäjä", filtteroi_syottajat(koti_lyh), key="k_sp"
+            "Aloitussyöttäjä", hae_kaikki_syottajat(), key="k_sp"
         )
 
         st.markdown("<br><b>Kotijoukkueen Lyöjät:</b>", unsafe_allow_html=True)
-        koti_roster = [
-            f"{p['name']} ({koti_lyh})" for p in rosterit.get(koti_lyh, [])
-        ]
+        # Haetaan valitun joukkueen oletuslyöjät esitäyttöä varten
+        koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
+        
         koti_yh = st.multiselect(
-            "Aloittava Yhdeksikkö (9)", koti_roster,
-            default=koti_roster[: min(9, len(koti_roster))], key="k_yh",
+            "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
+            default=koti_oletus_nimet[: min(9, len(koti_oletus_nimet))], key="k_yh",
         )
-        koti_pe_opt = [n for n in koti_roster if n not in koti_yh]
+        
+        koti_pe_opt = [n for n in kaikki_lyojat_nimet if n not in koti_yh]
+        koti_pe_oletus = [n for n in koti_oletus_nimet if n not in koti_yh]
+        
         koti_pe = st.multiselect(
             "Penkki (10% paino)", koti_pe_opt,
-            default=koti_pe_opt[: min(4, len(koti_pe_opt))], key="k_pe",
+            default=koti_pe_oletus[: min(4, len(koti_pe_oletus))], key="k_pe",
         )
 
     with c3:
@@ -365,27 +357,28 @@ with tab_analyysi:
         )
         vieras_koko, vieras_lyh = pura_joukkue(vieras_valinta)
         vieras_sp_nimi = st.selectbox(
-            "Aloitussyöttäjä", filtteroi_syottajat(vieras_lyh), key="v_sp"
+            "Aloitussyöttäjä", hae_kaikki_syottajat(), key="v_sp"
         )
 
         st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
-        vieras_roster = [
-            f"{p['name']} ({vieras_lyh})" for p in rosterit.get(vieras_lyh, [])
-        ]
+        vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
+        
         vieras_yh = st.multiselect(
-            "Aloittava Yhdeksikkö (9)", vieras_roster,
-            default=vieras_roster[: min(9, len(vieras_roster))], key="v_yh",
+            "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
+            default=vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))], key="v_yh",
         )
-        vieras_pe_opt = [n for n in vieras_roster if n not in vieras_yh]
+        
+        vieras_pe_opt = [n for n in kaikki_lyojat_nimet if n not in vieras_yh]
+        vieras_pe_oletus = [n for n in vieras_oletus_nimet if n not in vieras_yh]
+        
         vieras_pe = st.multiselect(
             "Penkki (10% paino)", vieras_pe_opt,
-            default=vieras_pe_opt[: min(4, len(vieras_pe_opt))], key="v_pe",
+            default=vieras_pe_oletus[: min(4, len(vieras_pe_oletus))], key="v_pe",
         )
 
-    # ── SÄÄ- JA STADIONOSIO (UUSI v9.0) ─────────────────────────────────────
+    # ── SÄÄ- JA STADIONOSIO ─────────────────────────────────────
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # Hae kotijoukkueen stadiondata
     stadion_info = STADION_DATA.get(
         koti_lyh,
         {"Stadion": "Tuntematon", "PF": 1.00, "Dome": False},
@@ -443,11 +436,10 @@ with tab_analyysi:
             unsafe_allow_html=True,
         )
 
-    st.markdown("</div>", unsafe_allow_html=True)  # suljetaan weather-box
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Laske-nappi ──────────────────────────────────────────────────────────
     if st.button("⚡ LASKE TODENNÄKÖISYYS"):
-        # Tallennetaan kaikki syötteet saved_inputs-välimuistiin
         st.session_state["saved_inputs"] = {
             "koti_koko":       koti_koko,
             "koti_lyh":        koti_lyh,
@@ -459,16 +451,14 @@ with tab_analyysi:
             "vieras_sp_nimi":  vieras_sp_nimi,
             "vieras_yh":       vieras_yh,
             "vieras_pe":       vieras_pe,
-            # Säätiedot (dome-stadionilla käytetään oletuksia)
             "lampotila_c":     20 if on_dome else int(lampotila),
             "tuuli_ms":        0.0 if on_dome else float(tuuli_ms),
             "tuuli_suunta":    "Sivutuuli / Tyyni" if on_dome else tuuli_suunta,
         }
-        # Tyhjennetään mahdollinen vanha tallennusviesti
         if "tallennettu_viesti" in st.session_state:
             del st.session_state["tallennettu_viesti"]
 
-    # ── Tulosten piirto (saved_inputs-pohjainen, SÄÄNTÖ NRO 1 säilyy) ────────
+    # ── Tulosten piirto ────────
     if "saved_inputs" in st.session_state:
         inp = st.session_state["saved_inputs"]
 
@@ -481,13 +471,12 @@ with tab_analyysi:
         koti_sp_arm   = koti_sp_data.get("Katisyys", "R")
         vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
 
-        koti_woba_sp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], inp["koti_lyh"],   vieras_sp_arm)
-        vieras_woba_sp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], inp["vieras_lyh"], koti_sp_arm)
+        koti_woba_sp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], vieras_sp_arm)
+        vieras_woba_sp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], koti_sp_arm)
 
-        koti_woba_bp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], inp["koti_lyh"],   "All")
-        vieras_woba_bp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], inp["vieras_lyh"], "All")
+        koti_woba_bp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], "All")
+        vieras_woba_bp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], "All")
 
-        # Moottorikutsu – uudet sääparametrit ja koti_lyh lisätty
         tulos = laske_todennakoisyys(
             inp["koti_koko"], inp["vieras_koko"],
             koti_sp=koti_sp_data,
@@ -586,7 +575,7 @@ with tab_analyysi:
             bp_xfip: float,
             woba: float,
             sp_arm: str,
-            stadion_nimi: str | None = None,   # None = vieras, ei näytetä
+            stadion_nimi: str | None = None,
         ) -> str:
             stadion_rivi = ""
             if stadion_nimi is not None:
@@ -617,7 +606,6 @@ with tab_analyysi:
                 f"</div>"
             )
 
-        # Hae stadionin nimi moottorituloksesta (tai fallback STADION_DATA:sta)
         stadion_nimi_tulos = tulos.get(
             "stadion_nimi",
             STADION_DATA.get(inp["koti_lyh"], {}).get("Stadion", "Tuntematon"),
@@ -631,7 +619,7 @@ with tab_analyysi:
                     tulos["koti_bp_dyn"],
                     koti_woba_sp,
                     vieras_sp_arm,
-                    stadion_nimi=stadion_nimi_tulos,   # kotijoukkueelle näytetään stadion
+                    stadion_nimi=stadion_nimi_tulos,
                 ),
                 unsafe_allow_html=True,
             )
@@ -644,7 +632,7 @@ with tab_analyysi:
                     tulos["vieras_bp_dyn"],
                     vieras_woba_sp,
                     koti_sp_arm,
-                    stadion_nimi=None,   # vierasjoukkueelle ei näytetä stadionia
+                    stadion_nimi=None,
                 ),
                 unsafe_allow_html=True,
             )
@@ -696,7 +684,7 @@ with tab_seuranta:
 
         muokattu = st.data_editor(
             df_seuranta,
-            width="stretch",                  # v9.0: use_container_width poistunut
+            width="stretch",
             num_rows="dynamic",
             column_config={
                 "Pvm":            st.column_config.TextColumn("Pvm",         width="small"),
@@ -715,7 +703,6 @@ with tab_seuranta:
             key="seuranta_editor",
         )
 
-        # Varmistetaan ettei NaN-vertailu sekoita ohjelmaa
         df_seuranta = df_seuranta.fillna("")
         muokattu    = muokattu.fillna("")
 
