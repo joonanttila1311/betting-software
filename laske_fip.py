@@ -51,6 +51,8 @@ MIN_IP_LISTAUS  = 20.0     # Minimi-IP top-5-listauksia varten
 MIN_IP_SPLIT    = 1.0      # Minimi painotettu IP split-laskennalle (alle → fallback)
 BULLPEN_INNING  = 6        # Bullpen alkaa tästä vuoroparista
 
+WEIGHT_SPRING_TRAINING = 0.20
+
 # ---------------------------------------------------------------------------
 # OUT-PAINOSANAKIRJA  (identtinen v1.0 / v2.0:n kanssa)
 # ---------------------------------------------------------------------------
@@ -132,19 +134,16 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
 
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Poistaa harjoituspelit (game_type == 'S') jos oikeita pelejä löytyy.
-    Jos data on pelkästään harjoituspelejä, käytetään niitä.
+    Ei enää poista harjoituspelejä! Palauttaa kaikki pelit sellaisenaan.
+    Ilmoittaa vain pelityyppien määrät.
     """
     if "game_type" not in df.columns:
         return df
 
-    oikeat = [g for g in df["game_type"].unique() if g not in ("S", None, "")]
-    if oikeat:
-        poistetaan = (df["game_type"] == "S").sum()
-        df = df[df["game_type"] != "S"].copy()
-        print(f"   → Poistettu {poistetaan:,} harjoituspeliriviä. Jäljellä: {len(df):,}")
-    else:
-        print(f"   ⚠️  Vain harjoituspelidataa – käytetään kaikki {len(df):,} riviä.")
+    if "game_type" in df.columns:
+        counts = df["game_type"].value_counts().to_dict()
+        tyypit_str = ", ".join([f"{k}: {v:,}" for k, v in counts.items()])
+        print(f"   → Pelityypit (game_type): {tyypit_str}")
     return df
 
 
@@ -185,6 +184,8 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     """
     Laskee jokaiselle riville aikapainon 60 päivän puoliintumisajalla.
     Sisältää dynaamisen 30 päivän talviveron (Offseason Freeze).
+    UUTTA v4.1: Kertoo aikapainon harjoituspelikertoimella (0.15),
+    jos peli on harjoituspeli (game_type == 'S').
     """
     import numpy as np # Varmistetaan että numpy on saatavilla tässä
     
@@ -231,8 +232,17 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
 
     # Varmistetaan ettei ikä mene negatiiviseksi ja lasketaan paino
     df['days_ago'] = df['days_ago'].clip(lower=0)
-    df["weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
+    df["time_weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
     # --- UUSI LOGIIKKA LOPPUU ---
+
+    # --- UUSI LOGIIKKA: HARJOITUSPELIEN PAINOTUS ---
+    if "game_type" in df.columns:
+        df['game_weight'] = np.where(df['game_type'] == 'S', WEIGHT_SPRING_TRAINING, 1.0)
+    else:
+        df['game_weight'] = 1.0
+        
+    # Lopullinen paino on aikapainon ja pelityyppipainon tulo!
+    df["weight"] = df["time_weight"] * df["game_weight"]
 
     # Tilastoinfo painotuksista
     w_min  = df["weight"].min()
@@ -242,9 +252,10 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     
     print(f"   → Tuorein peli: {max_date_print}  |  Vanhin: {min_date_print}")
     print(
-        f"   → Paino-alue: {w_min:.4f} – 1.0000  |  "
+        f"   → Lopullinen paino-alue (Time * GameType): {w_min:.4f} – 1.0000  |  "
         f"Keskiarvo: {w_mean:.4f}  |  "
-        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv"
+        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  "
+        f"Harkkapelipaino: {WEIGHT_SPRING_TRAINING}"
     )
 
     return df
@@ -551,8 +562,9 @@ def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  xFIP v4.0 – TIME DECAY + PLATOON SPLITS  |  Statcast 2025")
+    print(f"  ⚾  xFIP v4.1 – TIME DECAY + PLATOON SPLITS + HARKKA  |  Statcast 2025")
     print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}  |  Split min-IP_w: {MIN_IP_SPLIT}")
+    print(f"  Harjoituspelien painoarvo: {WEIGHT_SPRING_TRAINING}")
     print(viiva)
 
     # Askel 1: Lue data
@@ -565,7 +577,7 @@ if __name__ == "__main__":
     df = lisaa_joukkue(df)
 
     # Askel 4: Lisää aikapainot
-    print("\n⏳ Lasketaan aikapainot ...")
+    print("\n⏳ Lasketaan aikapainot (sis. harjoituspelikertoimen) ...")
     df = lisaa_painot(df)
 
     # Askel 5: Syöttäjät
