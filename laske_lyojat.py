@@ -38,6 +38,9 @@ MIN_PA_W_KOKO    = 20.0    # minimi painotettu PA koko kaudelle (alle → poiste
 MIN_PA_W_SPLIT   = 10.0    # minimi painotettu PA splitille (alle → fallback)
 MIN_PA_LISTAUS   = 50      # minimi aito PA top-10-listauksia varten
 
+# UUSI VAKIO: Harjoituspelien painoarvo (0.15 = 15%)
+WEIGHT_SPRING_TRAINING = 0.20
+
 # ---------------------------------------------------------------------------
 # wOBA-PAINOT  (FanGraphs 2024-kalibrointi, vakio eri kausien välillä)
 # ---------------------------------------------------------------------------
@@ -122,16 +125,14 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
-    """Poistaa harjoituspelit (S) jos oikeita pelejä on datassa."""
-    if "game_type" not in df.columns:
-        return df
-    oikeat = [g for g in df["game_type"].unique() if g not in ("S", None, "")]
-    if oikeat:
-        poistetaan = (df["game_type"] == "S").sum()
-        df = df[df["game_type"] != "S"].copy()
-        print(f"   → Poistettu {poistetaan:,} harjoituspeliriviä. Jäljellä: {len(df):,}")
-    else:
-        print(f"   ⚠️  Vain harjoituspelidataa – käytetään kaikki {len(df):,} riviä.")
+    """
+    Ei enää poista harjoituspelejä! Palauttaa kaikki pelit sellaisenaan.
+    Ilmoittaa vain pelityyppien määrät.
+    """
+    if "game_type" in df.columns:
+        counts = df["game_type"].value_counts().to_dict()
+        tyypit_str = ", ".join([f"{k}: {v:,}" for k, v in counts.items()])
+        print(f"   → Pelityypit (game_type): {tyypit_str}")
     return df
 
 
@@ -189,17 +190,27 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     df['days_ago'] = df['days_ago'].clip(lower=0)
-    df["weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
+    df["time_weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
     # --- UUSI LOGIIKKA LOPPUU ---
+
+    # --- UUSI LOGIIKKA: HARJOITUSPELIEN PAINOTUS ---
+    if "game_type" in df.columns:
+        df['game_weight'] = np.where(df['game_type'] == 'S', WEIGHT_SPRING_TRAINING, 1.0)
+    else:
+        df['game_weight'] = 1.0
+        
+    # Lopullinen paino on aikapainon ja pelityyppipainon tulo!
+    df["weight"] = df["time_weight"] * df["game_weight"]
 
     max_date_print = df['game_date'].max().date()
     min_date_print = df['game_date'].min().date()
 
     print(f"   → Tuorein peli: {max_date_print}  |  Vanhin: {min_date_print}")
     print(
-        f"   → Paino-alue: {df['weight'].min():.4f} – 1.0000  |  "
+        f"   → Lopullinen paino-alue (Time * GameType): {df['weight'].min():.4f} – 1.0000  |  "
         f"Keskiarvo: {df['weight'].mean():.4f}  |  "
-        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv"
+        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  "
+        f"Harkkapelipaino: {WEIGHT_SPRING_TRAINING}"
     )
     return df
 
@@ -412,9 +423,10 @@ def tulosta_yhteenveto(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  wOBA + PLATOON SPLITS  –  Statcast 2025")
+    print(f"  ⚾  wOBA + PLATOON SPLITS + HARKKA  –  Statcast 2025")
     print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  "
           f"|  Min PA_w: {MIN_PA_W_KOKO}  |  Split min PA_w: {MIN_PA_W_SPLIT}")
+    print(f"  Harjoituspelien painoarvo: {WEIGHT_SPRING_TRAINING}")
     print(viiva)
 
     # Askel 1: Lue data
@@ -424,7 +436,7 @@ if __name__ == "__main__":
     df = suodata_pelikategoria(df_raa)
 
     # Askel 3: Lisää aikapainot
-    print("\n⏳ Lasketaan aikapainot ...")
+    print("\n⏳ Lasketaan aikapainot (sis. harjoituspelikertoimen) ...")
     df = lisaa_painot(df)
 
     # Askel 4–5: Laske wOBA + splits
