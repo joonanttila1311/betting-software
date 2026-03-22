@@ -1,10 +1,9 @@
 """
-app.py  –  MLB Vedonlyönti-UI  v9.2
+app.py  –  MLB Vedonlyönti-UI  v9.5
 ====================================
-v9.2: "Vapaat markkinat" -päivitys.
-  - Syöttäjien ja lyöjien valikoista poistettu joukkuerajoitukset ja -lyhenteet.
-  - Pelaajia voi siirtää vapaasti joukkueesta toiseen ilman että wOBA/xFIP-matematiikka kärsii.
-  - Globaali pelaajarekisteri (kaikki_lyojat_id) varmistaa ID-numeroiden löytymisen.
+v9.5: Dynaamiset valikkoavaimet (Dynamic Keys) tiimivaihdoksiin.
+  - Korjaa bugin, jossa pelaajalistat eivät nollaannu joukkuetta vaihtaessa.
+  - Estää "Select All" -suojakilven virheelliset laukeamiset.
 """
 
 import csv
@@ -51,6 +50,8 @@ CSV_SARAKKEET = [
     "Pvm", "Koti", "Vieras",
     "Koti %", "Vieras %",
     "Koti kerroin", "Vieras kerroin",
+    "Koti SP xFIP", "Koti BP xFIP", "Koti wOBA",
+    "Vieras SP xFIP", "Vieras BP xFIP", "Vieras wOBA",
     "O/U odotus", "Koti odotus", "Vieras odotus",
     "Koti tulos", "Vieras tulos",
 ]
@@ -152,7 +153,6 @@ def lataa_syottajat():
         katisyys = r.get("p_throws", "R")
         if pd.isna(katisyys):
             katisyys = "R"
-        # POISTETTU JOUKKUEEN LYHENNE NIMEN PERÄSTÄ!
         avain = (
             f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
         )
@@ -221,24 +221,17 @@ if not tiimit or not optiot_syottajat or not rosterit:
     st.error("Dataa puuttuu! Varmista, että tietokanta ja JSON-tiedosto ovat olemassa.")
     st.stop()
 
-# ────────────────────────────────────────────────────────────────────────────
-# GLOBAALI PELAAJAREKISTERI (Uusi v9.2)
-# ────────────────────────────────────────────────────────────────────────────
-# Rakennetaan yksi iso sanakirja (Nimi -> ID), johon on kerätty kaikki pelaajat
-# kaikista joukkueista. Näin wOBA-matematiikka löytää oikean ID:n, vaikka
-# pelaaja olisi juuri kaupattu toiseen tiimiin.
-
+# Globaali Pelaajarekisteri
 kaikki_lyojat_id = {}
 for t_lyh, pelaajat in rosterit.items():
     for p in pelaajat:
         kaikki_lyojat_id[p["name"]] = p["id"]
 
-# Aakkosellinen lista puhtaita nimiä alasvetovalikkoihin
 kaikki_lyojat_nimet = sorted(list(kaikki_lyojat_id.keys()))
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# APUFUNKTIOT
+# APUFUNKTIOT JA CALLBACKIT
 # ────────────────────────────────────────────────────────────────────────────
 
 def pura_joukkue(valinta: str) -> tuple[str, str]:
@@ -247,10 +240,6 @@ def pura_joukkue(valinta: str) -> tuple[str, str]:
 
 
 def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_kasisyys: str) -> float:
-    """
-    Laskee joukkueen yhdistetyn wOBA:n.
-    HUOM: Etsii ID:t globaalista kaikki_lyojat_id -sanakirjasta!
-    """
     split = (
         "wOBA_All" if vastus_sp_kasisyys == "All"
         else f"wOBA_vs_{vastus_sp_kasisyys}"
@@ -279,6 +268,22 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_kasisyys: str
 def hae_kaikki_syottajat() -> list[str]:
     kaikki = list(optiot_syottajat.keys())
     return kaikki if kaikki else ["(Ei syöttäjiä)"]
+
+def est_select_all(l_key):
+    """
+    Suojakilpi. Jos pelaajia tulee 2 tai enemmän kerralla, estetään "Select All".
+    """
+    prev_key = l_key + "_prev"
+    current = st.session_state[l_key]
+    prev = st.session_state.get(prev_key, current)
+    
+    uusien_maara = len(set(current) - set(prev))
+    
+    if uusien_maara > 1:
+        st.session_state[l_key] = prev
+        st.toast("🛡️ 'Select All' -painallus estetty! Aiemmat valintasi on turvattu.", icon="🚫")
+    else:
+        st.session_state[prev_key] = current
 
 
 # ── Tallennusfunktiot ────────────────────────────────────────────────────────
@@ -328,53 +333,72 @@ with tab_analyysi:
         st.markdown("### 🏠 KOTIJOUKKUE")
         koti_valinta  = st.selectbox("Joukkue", tiimit, index=0, key="k_team")
         koti_koko, koti_lyh = pura_joukkue(koti_valinta)
-        koti_sp_nimi  = st.selectbox(
-            "Aloitussyöttäjä", hae_kaikki_syottajat(), key="k_sp"
-        )
+        koti_sp_nimi  = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="k_sp")
 
         st.markdown("<br><b>Kotijoukkueen Lyöjät:</b>", unsafe_allow_html=True)
-        # Haetaan valitun joukkueen oletuslyöjät esitäyttöä varten
         koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
+        koti_yh_def = koti_oletus_nimet[: min(9, len(koti_oletus_nimet))]
         
+        # Dynaaminen avain
+        koti_yh_key = f"k_yh_{koti_lyh}"
         koti_yh = st.multiselect(
             "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
-            default=koti_oletus_nimet[: min(9, len(koti_oletus_nimet))], key="k_yh",
+            default=koti_yh_def, 
+            max_selections=9,
+            key=koti_yh_key,
+            on_change=est_select_all,
+            args=(koti_yh_key,)
         )
         
         koti_pe_opt = [n for n in kaikki_lyojat_nimet if n not in koti_yh]
-        koti_pe_oletus = [n for n in koti_oletus_nimet if n not in koti_yh]
+        koti_pe_def = [n for n in koti_oletus_nimet if n not in koti_yh][: min(4, max(0, len(koti_oletus_nimet)-len(koti_yh)))]
         
+        # Dynaaminen avain
+        koti_pe_key = f"k_pe_{koti_lyh}"
         koti_pe = st.multiselect(
             "Penkki (10% paino)", koti_pe_opt,
-            default=koti_pe_oletus[: min(4, len(koti_pe_oletus))], key="k_pe",
+            default=koti_pe_def, 
+            max_selections=5,
+            key=koti_pe_key,
+            on_change=est_select_all,
+            args=(koti_pe_key,)
         )
 
     with c3:
         st.markdown("### ✈️ VIERASJOUKKUE")
-        vieras_valinta = st.selectbox(
-            "Joukkue", tiimit,
-            index=1 if len(tiimit) > 1 else 0, key="v_team",
-        )
+        vieras_valinta = st.selectbox("Joukkue", tiimit, index=1 if len(tiimit) > 1 else 0, key="v_team")
         vieras_koko, vieras_lyh = pura_joukkue(vieras_valinta)
-        vieras_sp_nimi = st.selectbox(
-            "Aloitussyöttäjä", hae_kaikki_syottajat(), key="v_sp"
-        )
+        vieras_sp_nimi = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="v_sp")
 
         st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
         vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
+        vieras_yh_def = vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))]
         
+        # Dynaaminen avain
+        vieras_yh_key = f"v_yh_{vieras_lyh}"
         vieras_yh = st.multiselect(
             "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
-            default=vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))], key="v_yh",
+            default=vieras_yh_def, 
+            max_selections=9,
+            key=vieras_yh_key,
+            on_change=est_select_all,
+            args=(vieras_yh_key,)
         )
         
         vieras_pe_opt = [n for n in kaikki_lyojat_nimet if n not in vieras_yh]
-        vieras_pe_oletus = [n for n in vieras_oletus_nimet if n not in vieras_yh]
+        vieras_pe_def = [n for n in vieras_oletus_nimet if n not in vieras_yh][: min(4, max(0, len(vieras_oletus_nimet)-len(vieras_yh)))]
         
+        # Dynaaminen avain
+        vieras_pe_key = f"v_pe_{vieras_lyh}"
         vieras_pe = st.multiselect(
             "Penkki (10% paino)", vieras_pe_opt,
-            default=vieras_pe_oletus[: min(4, len(vieras_pe_oletus))], key="v_pe",
+            default=vieras_pe_def, 
+            max_selections=17,
+            key=vieras_pe_key,
+            on_change=est_select_all,
+            args=(vieras_pe_key,)
         )
+
 
     # ── SÄÄ- JA STADIONOSIO ─────────────────────────────────────
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
@@ -506,6 +530,12 @@ with tab_analyysi:
             "Vieras %":       f"{v_pct:.1f}",
             "Koti kerroin":   f"{k_odds:.2f}",
             "Vieras kerroin": f"{v_odds:.2f}",
+            "Koti SP xFIP":   f"{tulos['koti_sp_dyn']:.2f}",
+            "Koti BP xFIP":   f"{tulos['koti_bp_dyn']:.2f}",
+            "Koti wOBA":      f"{tulos['koti_woba_total']:.3f}",
+            "Vieras SP xFIP": f"{tulos['vieras_sp_dyn']:.2f}",
+            "Vieras BP xFIP": f"{tulos['vieras_bp_dyn']:.2f}",
+            "Vieras wOBA":    f"{tulos['vieras_woba_total']:.3f}",
             "O/U odotus":     f"{tulos['total_odotus']:.1f}",
             "Koti odotus":    f"{tulos['k_odotus']:.1f}",
             "Vieras odotus":  f"{tulos['v_odotus']:.1f}",
@@ -694,6 +724,12 @@ with tab_seuranta:
                 "Vieras %":       st.column_config.TextColumn("Vieras %",    width="small"),
                 "Koti kerroin":   st.column_config.TextColumn("Koti k.",     width="small"),
                 "Vieras kerroin": st.column_config.TextColumn("Vieras k.",   width="small"),
+                "Koti SP xFIP":   st.column_config.TextColumn("K SP",        width="small"),
+                "Koti BP xFIP":   st.column_config.TextColumn("K BP",        width="small"),
+                "Koti wOBA":      st.column_config.TextColumn("K wOBA",      width="small"),
+                "Vieras SP xFIP": st.column_config.TextColumn("V SP",        width="small"),
+                "Vieras BP xFIP": st.column_config.TextColumn("V BP",        width="small"),
+                "Vieras wOBA":    st.column_config.TextColumn("V wOBA",      width="small"),
                 "O/U odotus":     st.column_config.TextColumn("O/U",         width="small"),
                 "Koti odotus":    st.column_config.TextColumn("Koti O",      width="small"),
                 "Vieras odotus":  st.column_config.TextColumn("Vieras O",    width="small"),
