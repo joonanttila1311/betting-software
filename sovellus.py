@@ -260,8 +260,19 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_kasisyys: str
 
     yh_lst = hae_arvot(yh_nimet)
     pe_lst = hae_arvot(pe_nimet)
-    yh_ka  = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_WOBA_KA
-    pe_ka  = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_WOBA_KA
+    
+    # VEGAS-STANDARDI PÄIVITYS (v9.6): 
+    # Täydennetään vajaat kokoonpanot liigan keskiarvolla (0.310).
+    # Aloittava yhdeksikkö on MLB:ssä aina 9 miestä.
+    puuttuvat_yh = max(0, 9 - len(yh_lst))
+    yh_lst.extend([LIIGA_WOBA_KA] * puuttuvat_yh)
+    yh_ka = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_WOBA_KA
+    
+    # MLB-penkillä on normaalisti aina 4 kenttäpelaajaa (13 syöttäjää, 9 aloittajaa, 4 penkillä).
+    puuttuvat_pe = max(0, 4 - len(pe_lst))
+    pe_lst.extend([LIIGA_WOBA_KA] * puuttuvat_pe)
+    pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_WOBA_KA
+    
     return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)
 
 
