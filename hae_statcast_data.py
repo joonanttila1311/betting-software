@@ -22,7 +22,7 @@ import pybaseball
 # ---------------------------------------------------------------------------
 DB_POLKU        = "mlb_historical.db"      # Kohdetietokanta
 TAULU           = "statcast_2025"          # HUOM: Pidettiin vanha nimi yhteensopivuuden vuoksi!
-OLETUS_ALKU     = date(2025, 2, 15)        # Mistä aloitetaan jos kanta on aivan tyhjä
+OLETUS_ALKU     = date(2025, 3, 20)        # Vain kilpailullinen kausi (runkosarja 2025 alkoi 20.3.)
 
 PALAN_KOKO_PV   = 10                       # Päiviä per haku
 TAUKO_SEKUNTIA  = 5                        # Tauko hakujen välillä
@@ -32,10 +32,6 @@ TAUKO_SEKUNTIA  = 5                        # Tauko hakujen välillä
 # ---------------------------------------------------------------------------
 
 def hae_viimeisin_paivamaara(db_polku: str, taulu: str) -> date | None:
-    """
-    Tarkistaa tietokannasta, mihin asti dataa on jo haettu.
-    Etsii sarakkeesta 'game_date' tuoreimman päivämäärän.
-    """
     try:
         yhteys = sqlite3.connect(db_polku)
         kysely = f"SELECT MAX(game_date) FROM {taulu}"
@@ -43,10 +39,8 @@ def hae_viimeisin_paivamaara(db_polku: str, taulu: str) -> date | None:
         yhteys.close()
         
         if pd.notna(tulos):
-            # Muutetaan merkkijono (esim '2025-08-15') oikeaksi date-olioksi
             return datetime.strptime(str(tulos)[:10], "%Y-%m-%d").date()
     except Exception:
-        # Taulua ei ole olemassa tai sarake puuttuu -> palautetaan None
         pass
     return None
 
@@ -82,10 +76,15 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
             print(f"     ⚠️  Ei dataa välillä {alku_str} – {loppu_str}")
             return None
 
-        # Nyt otamme KAIKKI pelit (myös 'S' ja 'E') tietokantaan asti!
-        # laske_fip.py ja laske_lyojat.py hoitavat niiden alipainottamisen (15 %).
-        
-        print(f"     ✅ {alku_str} – {loppu_str}: {len(df):>7,} syöttöä haettu ja siirretään kantaan.")
+        # UUSI: Suodatetaan harjoituspelit pois heti haussa! (R = Regular, P = Playoff)
+        if 'game_type' in df.columns:
+            df = df[df['game_type'].isin(['R', 'P'])]
+            
+        if df.empty:
+            print(f"     ⚠️  Ei kilpailullisia pelejä välillä {alku_str} – {loppu_str}")
+            return None
+
+        print(f"     ✅ {alku_str} – {loppu_str}: {len(df):>7,} kilpailullista syöttöä haettu.")
         return df
 
     except Exception as e:
@@ -97,10 +96,6 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
 # ---------------------------------------------------------------------------
 
 def tallenna_kantaan(df: pd.DataFrame, db_polku: str, taulu: str, tallennus_tapa: str) -> None:
-    """
-    Tallennus tietokantaan.
-    tallennus_tapa = 'replace' (luo uuden) tai 'append' (lisää olemassa olevaan)
-    """
     try:
         yhteys = sqlite3.connect(db_polku)
         df.to_sql(
@@ -125,15 +120,13 @@ if __name__ == "__main__":
 
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  STATCAST DATAHAKU (Älykäs päivitys)")
+    print(f"  ⚾  STATCAST DATAHAKU (Vain kilpailulliset pelit)")
     print(viiva)
 
     tanaan = date.today()
     viimeisin_kannassa = hae_viimeisin_paivamaara(DB_POLKU, TAULU)
 
-    # Päätellään, mistä asti haetaan ja miten tallennetaan
     if viimeisin_kannassa:
-        # Haetaan seuraavasta päivästä alkaen
         haku_alku = viimeisin_kannassa + timedelta(days=1)
         tallennus_tapa = "append"
         print(f"  📌 Tietokannassa on dataa päivään {viimeisin_kannassa} asti.")
@@ -153,7 +146,6 @@ if __name__ == "__main__":
     print(f"  Kohde : {DB_POLKU} → taulu '{TAULU}'")
     print(f"{viiva}\n")
 
-    # ── Luo aikavälipalat ──
     palat = luo_aikavalit(haku_alku, haku_loppu, PALAN_KOKO_PV)
     print(f"📦 Hakuja tehtävänä yhteensä: {len(palat)}\n")
 
@@ -172,22 +164,18 @@ if __name__ == "__main__":
         if i < len(palat):
             time.sleep(TAUKO_SEKUNTIA)
 
-    # ── Yhteenveto ──
     print(f"\n{viiva}")
     print(f"  HAKU VALMIS")
     print(f"  Onnistuneet haut  : {len(onnistuneet)} / {len(palat)}")
     print(f"  Epäonnistuneet    : {len(epaonnistuneet)}")
     print(viiva)
 
-    # ── Yhdistäminen ja tallennus ──
-    # TÄMÄ ON NYT OIKEASSA PAIKASSA (ei enää sisennettynä väärin!)
     if not onnistuneet:
         print("\n❌ Yhtään uutta datapakettia ei saatu.")
     else:
         print(f"\n🔗 Yhdistetään {len(onnistuneet)} datapakettia ...")
         yhdistetty = pd.concat(onnistuneet, ignore_index=True)
 
-        # Poistetaan tuoreimman haun sisäiset duplikaatit
         ennen = len(yhdistetty)
         if "pitch_number" in yhdistetty.columns and "game_pk" in yhdistetty.columns:
             yhdistetty = yhdistetty.drop_duplicates(
@@ -197,7 +185,6 @@ if __name__ == "__main__":
         if ennen != jalkeen:
             print(f"   → Poistettu {ennen - jalkeen:,} duplikaattia haun sisältä.")
 
-        # KUTSUTAAN TALLENNUSTA OIKEIN:
         tallenna_kantaan(yhdistetty, DB_POLKU, TAULU, tallennus_tapa)
 
         print("\n🎉 Päivitys onnistui!")

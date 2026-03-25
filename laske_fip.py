@@ -85,17 +85,11 @@ OUT_PAINOT: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
-    """
-    Lukee taulusta 'statcast_2025' xFIP-laskentaan tarvittavat sarakkeet.
-    Nyt mukana myös game_date aikapainotusta varten.
-    Suodattaa tyhjät events-rivit SQL-tasolla.
-    """
     if not Path(db_polku).exists():
         raise FileNotFoundError(
             f"Tietokantaa '{db_polku}' ei löydy. Aja ensin fetch_statcast.py."
         )
 
-    # LISÄTTY: p_throws SQL-hakuun
     kysely = """
         SELECT
             player_name,
@@ -134,13 +128,10 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
 
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ei enää poista harjoituspelejä! Palauttaa kaikki pelit sellaisenaan.
-    Ilmoittaa vain pelityyppien määrät.
+    Suodattaa datasta varmuuden vuoksi vain kilpailulliset pelit (R/P).
     """
-    if "game_type" not in df.columns:
-        return df
-
     if "game_type" in df.columns:
+        df = df[df["game_type"].isin(["R", "P"])]
         counts = df["game_type"].value_counts().to_dict()
         tyypit_str = ", ".join([f"{k}: {v:,}" for k, v in counts.items()])
         print(f"   → Pelityypit (game_type): {tyypit_str}")
@@ -152,11 +143,6 @@ def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def lisaa_joukkue(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Päättelee syöttävän joukkueen lyhenteen:
-      inning_topbot == 'Top' → home_team syöttää
-      inning_topbot == 'Bot' → away_team syöttää
-    """
     for sarake in ("inning_topbot", "home_team", "away_team"):
         if sarake not in df.columns:
             print(f"   ⚠️  Sarake '{sarake}' puuttuu – Team jää tyhjäksi.")
@@ -173,39 +159,26 @@ def lisaa_joukkue(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 4. TIME DECAY -PAINOJEN LASKENTA
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # 4. TIME DECAY -PAINOJEN LASKENTA (TALVIVERO-PÄIVITYS)
 # ---------------------------------------------------------------------------
 
 def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Laskee jokaiselle riville aikapainon 60 päivän puoliintumisajalla.
-    Sisältää dynaamisen 30 päivän talviveron (Offseason Freeze).
-    UUTTA v4.1: Kertoo aikapainon harjoituspelikertoimella (0.15),
-    jos peli on harjoituspeli (game_type == 'S').
-    """
-    import numpy as np # Varmistetaan että numpy on saatavilla tässä
+    import numpy as np
     
     df = df.copy()
 
-    # Muunnetaan game_date datetime-muotoon
     df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
     puuttuvat = df["game_date"].isna().sum()
     if puuttuvat > 0:
         print(f"   ⚠️  Poistettu {puuttuvat:,} riviä joilla game_date puuttuu/virheellinen.")
         df = df.dropna(subset=["game_date"])
 
-    # --- UUSI TALVIVERO-LOGIIKKA ALKAA ---
     nykyhetki = pd.to_datetime('today')
     nykyinen_vuosi = nykyhetki.year
 
     menneet_kaudet = df[df['game_date'].dt.year < nykyinen_vuosi]
     nykyinen_kausi = df[df['game_date'].dt.year == nykyinen_vuosi]
 
-    # Lasketaan aluksi raaka kalenteri-ikä nykyhetkestä
     df["days_ago"] = (nykyhetki - df["game_date"]).dt.days
 
     if not menneet_kaudet.empty:
@@ -223,28 +196,22 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
         else:
             offseason_tauko = max(0, (nykyhetki - t_last).days - 30)
 
-        # Vähennetään tauko menneen kauden peleiltä
         df['days_ago'] = np.where(
             df['game_date'].dt.year < nykyinen_vuosi,
             df['days_ago'] - offseason_tauko,
             df['days_ago']
         )
 
-    # Varmistetaan ettei ikä mene negatiiviseksi ja lasketaan paino
     df['days_ago'] = df['days_ago'].clip(lower=0)
     df["time_weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
-    # --- UUSI LOGIIKKA LOPPUU ---
 
-    # --- UUSI LOGIIKKA: HARJOITUSPELIEN PAINOTUS ---
     if "game_type" in df.columns:
         df['game_weight'] = np.where(df['game_type'] == 'S', WEIGHT_SPRING_TRAINING, 1.0)
     else:
         df['game_weight'] = 1.0
         
-    # Lopullinen paino on aikapainon ja pelityyppipainon tulo!
     df["weight"] = df["time_weight"] * df["game_weight"]
 
-    # Tilastoinfo painotuksista
     w_min  = df["weight"].min()
     w_mean = df["weight"].mean()
     max_date_print = df['game_date'].max().date()
@@ -266,43 +233,26 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def laske_xfip_komponentit(ryhma: pd.DataFrame) -> dict:
-    """
-    Laskee xFIP-komponentit PAINOTETUSTI käyttäen 'weight'-saraketta.
-
-    Painotuslogiikka:
-      - K, BB, HBP, fly_balls: weight-summa (ei rivimäärä)
-      - Outs_w: sum(out_value * weight)   → painotettu IP-laskentaan
-      - Outs_raw: sum(out_value)           → tallennetaan aitona IP:nä
-      - IP_w (painotettu): Outs_w / 3     → xFIP-laskentaan
-      - IP_raw (aito):     Outs_raw / 3   → tallennetaan kantaan
-
-    Palauttaa dict kaikilla komponenteilla.
-    """
     w = ryhma["weight"]
 
-    # ── Painotetut tapahtumamäärät ──
     k_w         = ryhma.loc[ryhma["events"] == "strikeout",    "weight"].sum()
     bb_w        = ryhma.loc[ryhma["events"] == "walk",         "weight"].sum()
     hbp_w       = ryhma.loc[ryhma["events"] == "hit_by_pitch", "weight"].sum()
 
-    # fly_ball-tieto on bb_type-sarakkeessa (ei events-sarakkeessa)
     if "bb_type" in ryhma.columns:
         fly_w   = ryhma.loc[ryhma["bb_type"] == "fly_ball",    "weight"].sum()
     else:
         fly_w   = 0.0
 
-    # ── Painotettu out-laskenta ──
-    # Luodaan väliaikainen out_value-sarake ryhmälle
     out_vals        = ryhma["events"].map(lambda e: OUT_PAINOT.get(e, 0))
-    outs_w          = float((out_vals * w).sum())   # xFIP-laskentaan
-    outs_raw        = float(out_vals.sum())          # aitoon IP:hen
+    outs_w          = float((out_vals * w).sum())
+    outs_raw        = float(out_vals.sum())
 
-    ip_w            = outs_w   / 3.0   # painotettu IP
-    ip_raw          = outs_raw / 3.0   # aito IP
+    ip_w            = outs_w   / 3.0
+    ip_raw          = outs_raw / 3.0
 
     xhr             = fly_w * HR_FB_SUHDE
 
-    # ── xFIP (painotetulla IP:llä) ──
     if ip_w < 0.01:
         xfip = None
     else:
@@ -334,29 +284,16 @@ def laske_split_xfip(
     katisyys: str,
     fallback_xfip: float,
 ) -> float:
-    """
-    Laskee aikapainotetun xFIP:n yhdelle kätisyyssplitille (L tai R).
-
-    Parametrit:
-        ryhma         – syöttäjän / joukkueen koko DataFrame-ryhmä
-        katisyys      – 'L' tai 'R' (stand-sarakkeen arvo)
-        fallback_xfip – palautetaan jos dataa on liian vähän (IP_w < MIN_IP_SPLIT)
-
-    Palauttaa:
-        float – xFIP kyseistä kätisyyttä vastaan, tai fallback_xfip
-    """
     if "stand" not in ryhma.columns:
         return fallback_xfip
 
     osajoukko = ryhma[ryhma["stand"] == katisyys]
 
-    # Liian vähän dataa → fallback
     if len(osajoukko) == 0:
         return fallback_xfip
 
     komp = laske_xfip_komponentit(osajoukko)
 
-    # Tarkistetaan sekä None että liian pieni painotettu IP
     if komp["xFIP"] is None or komp["IP_w"] < MIN_IP_SPLIT:
         return fallback_xfip
 
@@ -368,14 +305,6 @@ def laske_split_xfip(
 # ---------------------------------------------------------------------------
 
 def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ryhmittelee datan syöttäjittäin ja laskee:
-      xFIP_All (koko data), xFIP_vs_L, xFIP_vs_R (platoon splits),
-      IP (aito), yleisin Team, IP_per_Start.
-
-    Platoon fallback: jos split-laskenta tuottaa None tai IP_w < MIN_IP_SPLIT,
-    käytetään xFIP_All:ia tilalla.
-    """
     print("\n⚙️  Lasketaan syöttäjien aikapainotettu xFIP + Platoon Splits ...")
 
     rivit      = []
@@ -383,26 +312,21 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
     n          = len(ryhmittely)
 
     for idx, (nimi, ryhma) in enumerate(ryhmittely, start=1):
-        # ── Koko datan xFIP ──
         komp     = laske_xfip_komponentit(ryhma)
         xfip_all = komp["xFIP"]
 
-        # Yleisin joukkue (mode)
         team_mode = ryhma["Team"].mode()
         team      = str(team_mode.iloc[0]) if len(team_mode) > 0 else ""
         
-        # LISÄTTY: Päätellään syöttäjän kätisyys
         if "p_throws" in ryhma.columns:
             p_throws_mode = ryhma["p_throws"].dropna().mode()
             katisyys = str(p_throws_mode.iloc[0]) if len(p_throws_mode) > 0 else "R"
         else:
             katisyys = "R"
 
-        # IP_per_Start: aito IP / uniikkeja pelejä
         pelit        = ryhma["game_pk"].nunique()
         ip_per_start = round(komp["IP_raw"] / pelit, 2) if pelit > 0 else 0.0
 
-        # ── Platoon Splits (fallback = xFIP_All) ──
         fallback     = xfip_all if xfip_all is not None else FIP_VAKIO
         xfip_vs_l    = laske_split_xfip(ryhma, "L", fallback)
         xfip_vs_r    = laske_split_xfip(ryhma, "R", fallback)
@@ -415,7 +339,7 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
             "xFIP_vs_R":    xfip_vs_r,
             "IP":           komp["IP_raw"],
             "IP_per_Start": ip_per_start,
-            "p_throws":     katisyys, # LISÄTTY: Kätisyys mukaan tauluun!
+            "p_throws":     katisyys, 
         })
 
         if idx % 100 == 0 or idx == n:
@@ -428,7 +352,6 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
     df_out = df_out[df_out["IP"] >= MIN_IP].copy()
     print(f"   → IP-suodatus (≥ {MIN_IP}): {ennen} → {len(df_out)} syöttäjää")
 
-    # LISÄTTY: "p_throws" palautettaviin sarakkeisiin
     return df_out.sort_values("xFIP_All").reset_index(drop=True)[
         ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "IP", "IP_per_Start", "p_throws"]
     ]
@@ -439,14 +362,6 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ottaa vain syötöt joissa inning >= BULLPEN_INNING.
-    Ryhmittelee joukkueittain ja laskee kollektiivisen aikapainotetun
-    xFIP_All, xFIP_vs_L ja xFIP_vs_R sekä aidon IP:n.
-
-    Platoon fallback: jos split-laskenta tuottaa None tai IP_w < MIN_IP_SPLIT,
-    käytetään Bullpen_xFIP_All:ia tilalla.
-    """
     print(f"\n⚙️  Lasketaan bullpen-xFIP + Platoon Splits (inning ≥ {BULLPEN_INNING}) ...")
 
     if "inning" not in df.columns:
@@ -494,7 +409,6 @@ def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def tallenna(df: pd.DataFrame, taulu: str, db_polku: str = DB_POLKU) -> None:
-    """Tallentaa DataFramen SQLite-tauluun (korvaa vanhan)."""
     try:
         yhteys = sqlite3.connect(db_polku)
         df.to_sql(taulu, yhteys, if_exists="replace", index=False)
@@ -562,37 +476,26 @@ def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  xFIP v4.1 – TIME DECAY + PLATOON SPLITS + HARKKA  |  Statcast 2025")
+    print(f"  ⚾  xFIP v4.1 – TIME DECAY + PLATOON SPLITS  |  Statcast 2025")
     print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}  |  Split min-IP_w: {MIN_IP_SPLIT}")
-    print(f"  Harjoituspelien painoarvo: {WEIGHT_SPRING_TRAINING}")
     print(viiva)
 
-    # Askel 1: Lue data
     df_raa = lue_data()
-
-    # Askel 2: Suodata kausikoodi
     df = suodata_pelikategoria(df_raa)
-
-    # Askel 3: Päättele joukkue
     df = lisaa_joukkue(df)
-
-    # Askel 4: Lisää aikapainot
-    print("\n⏳ Lasketaan aikapainot (sis. harjoituspelikertoimen) ...")
+    
+    print("\n⏳ Lasketaan aikapainot ...")
     df = lisaa_painot(df)
 
-    # Askel 5: Syöttäjät
     print(f"\n{'─'*62}")
     df_syottajat = laske_syottajat(df)
 
-    # Askel 6: Bullpen
     df_bullpen = laske_bullpen(df)
 
-    # Tallennus
     print(f"\n💾 Tallennetaan taulut ...")
     tallenna(df_syottajat, TAULU_SYOTTAJAT)
     tallenna(df_bullpen,   TAULU_BULLPEN)
 
-    # Tulostus
     tulosta_top5_syottajat(df_syottajat)
     tulosta_top5_bullpen(df_bullpen)
 

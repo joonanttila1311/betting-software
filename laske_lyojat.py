@@ -38,7 +38,6 @@ MIN_PA_W_KOKO    = 20.0    # minimi painotettu PA koko kaudelle (alle → poiste
 MIN_PA_W_SPLIT   = 10.0    # minimi painotettu PA splitille (alle → fallback)
 MIN_PA_LISTAUS   = 50      # minimi aito PA top-10-listauksia varten
 
-# UUSI VAKIO: Harjoituspelien painoarvo (0.15 = 15%)
 WEIGHT_SPRING_TRAINING = 0.20
 
 # ---------------------------------------------------------------------------
@@ -55,13 +54,9 @@ WOBA_PAINOT: dict[str, float] = {
 
 # ---------------------------------------------------------------------------
 # PLATE APPEARANCE -TAPAHTUMAT
-# Kaikki events jotka lasketaan PA:ksi (osoittajan JA nimittäjän kannalta).
-# Nämä muodostavat laskentayksikön nimittäjään.
 # ---------------------------------------------------------------------------
 PA_TAPAHTUMAT: frozenset[str] = frozenset({
-    # Positiiviset tulokset (saavat wOBA-painon)
     "walk", "hit_by_pitch", "single", "double", "triple", "home_run",
-    # Outs (arvo 0 osoittajassa, mutta lasketaan nimittäjään)
     "strikeout",
     "field_out",
     "force_out",
@@ -71,9 +66,7 @@ PA_TAPAHTUMAT: frozenset[str] = frozenset({
     "sac_fly_double_play",
     "fielders_choice_out",
     "fielders_choice",
-    "sac_fly",           # lasketaan PA:ksi mutta ei wOBA:han (arvo 0)
-    # Huom: sac_bunt EI tyypillisesti laske PA:ksi virallisessa wOBA:ssa
-    # mutta sisällytetään tähän MVP-versioon yksinkertaisuuden vuoksi
+    "sac_fly",
 })
 
 
@@ -82,15 +75,6 @@ PA_TAPAHTUMAT: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
-    """
-    Lukee taulusta 'statcast_2025' lyöjätilastoihin tarvittavat sarakkeet.
-
-    Huom Statcast-datan rakenteesta:
-      - 'batter'      = lyöjän MLB-tunnistekoodi (numeerinen ID, yksilöllinen)
-      - 'player_name' = SYÖTTÄJÄN nimi (ei lyöjän!) Statcast-skeemassa
-      - Lyöjän nimeä ei ole suoraan statcast_2025-taulussa ilman erillistä
-        lookup-taulua → käytetään batter-ID:tä tunnisteena (Batter_ID)
-    """
     if not Path(db_polku).exists():
         raise FileNotFoundError(
             f"Tietokantaa '{db_polku}' ei löydy. Aja ensin fetch_statcast.py."
@@ -126,10 +110,10 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
 
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ei enää poista harjoituspelejä! Palauttaa kaikki pelit sellaisenaan.
-    Ilmoittaa vain pelityyppien määrät.
+    Suodattaa datasta varmuuden vuoksi vain kilpailulliset pelit (R/P).
     """
     if "game_type" in df.columns:
+        df = df[df["game_type"].isin(["R", "P"])]
         counts = df["game_type"].value_counts().to_dict()
         tyypit_str = ", ".join([f"{k}: {v:,}" for k, v in counts.items()])
         print(f"   → Pelityypit (game_type): {tyypit_str}")
@@ -137,19 +121,11 @@ def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 3. TIME DECAY -PAINOT
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # 3. TIME DECAY -PAINOT (TALVIVERO-PÄIVITYS)
 # ---------------------------------------------------------------------------
 
 def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Laskee jokaiselle riville aikapainon 60 päivän puoliintumisajalla.
-    Sisältää dynaamisen 30 päivän talviveron (Offseason Freeze).
-    """
-    import numpy as np # Varmistetaan että numpy on saatavilla tässä
+    import numpy as np
     
     df = df.copy()
     df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
@@ -159,7 +135,6 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
         print(f"   ⚠️  Poistettu {puuttuvat:,} riviä joilla game_date puuttuu.")
         df = df.dropna(subset=["game_date"])
 
-    # --- UUSI TALVIVERO-LOGIIKKA ALKAA ---
     nykyhetki = pd.to_datetime('today')
     nykyinen_vuosi = nykyhetki.year
 
@@ -191,15 +166,12 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
 
     df['days_ago'] = df['days_ago'].clip(lower=0)
     df["time_weight"]   = 0.5 ** (df["days_ago"] / PUOLIINTUMISAIKA)
-    # --- UUSI LOGIIKKA LOPPUU ---
 
-    # --- UUSI LOGIIKKA: HARJOITUSPELIEN PAINOTUS ---
     if "game_type" in df.columns:
         df['game_weight'] = np.where(df['game_type'] == 'S', WEIGHT_SPRING_TRAINING, 1.0)
     else:
         df['game_weight'] = 1.0
         
-    # Lopullinen paino on aikapainon ja pelityyppipainon tulo!
     df["weight"] = df["time_weight"] * df["game_weight"]
 
     max_date_print = df['game_date'].max().date()
@@ -220,22 +192,6 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def laske_woba(osajoukko: pd.DataFrame) -> dict:
-    """
-    Laskee aikapainotetun wOBA:n yhdelle DataFramen osajoukolla
-    (voi olla koko pelaajan data tai kätisyyssplit).
-
-    Logiikka:
-      1. Suodatetaan vain PA-tapahtumat (PA_TAPAHTUMAT-joukko)
-      2. Osoittaja = Σ(wOBA_paino × weight)  vain positiivisille tuloksille
-      3. Nimittäjä = Σ(weight)               kaikille PA-tapahtumille
-      4. wOBA = osoittaja / nimittäjä
-
-    Palauttaa dict:
-        wOBA     – pyöristetty 3 desimaaliin, tai None jos liian vähän dataa
-        PA_w     – painotettu PA (nimittäjä)
-        PA_raw   – aito PA-lukumäärä
-    """
-    # Suodatetaan vain PA-tapahtumat (jätetään pois esim. stolen base, pickoff)
     pa_maski = osajoukko["events"].isin(PA_TAPAHTUMAT)
     pa_df    = osajoukko[pa_maski]
 
@@ -245,7 +201,6 @@ def laske_woba(osajoukko: pd.DataFrame) -> dict:
     if pa_w < 0.01:
         return {"wOBA": None, "PA_w": 0.0, "PA_raw": 0}
 
-    # Osoittaja: wOBA-paino × weight vain onnistumisille
     osoittaja = float(
         pa_df.apply(
             lambda rivi: WOBA_PAINOT.get(rivi["events"], 0.0) * rivi["weight"],
@@ -271,11 +226,6 @@ def laske_split_woba(
     p_throws_arvo: str,
     fallback: float,
 ) -> float:
-    """
-    Laskee wOBA:n yhdelle kätisyyssplitille (p_throws == 'L' tai 'R').
-
-    Fallback-ehto: jos PA_w < MIN_PA_W_SPLIT → palautetaan fallback (wOBA_All).
-    """
     if "p_throws" not in ryhma.columns:
         return fallback
 
@@ -296,12 +246,6 @@ def laske_split_woba(
 # ---------------------------------------------------------------------------
 
 def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ryhmittelee datan lyöjittäin (batter-ID) ja laskee:
-      wOBA_All, wOBA_vs_L, wOBA_vs_R, PA_raw
-
-    Suodattaa pois lyöjät joilla PA_w < MIN_PA_W_KOKO.
-    """
     print("\n⚙️  Lasketaan lyöjien aikapainotettu wOBA + Platoon Splits ...")
 
     rivit      = []
@@ -310,10 +254,8 @@ def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
 
     for idx, (batter_id, ryhma) in enumerate(ryhmittely, start=1):
 
-        # ── Koko kauden wOBA ──
         koko = laske_woba(ryhma)
 
-        # Poistetaan heti jos liian vähän painotettuja PA:ta
         if koko["wOBA"] is None or koko["PA_w"] < MIN_PA_W_KOKO:
             if idx % 100 == 0 or idx == n:
                 print(f"   [{idx:>5}/{n}] laskettu ...", end="\r")
@@ -322,7 +264,6 @@ def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
         woba_all = koko["wOBA"]
         fallback = woba_all
 
-        # ── Platoon Splits ──
         woba_vs_l = laske_split_woba(ryhma, "L", fallback)
         woba_vs_r = laske_split_woba(ryhma, "R", fallback)
 
@@ -349,7 +290,6 @@ def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def tallenna(df: pd.DataFrame, db_polku: str = DB_POLKU) -> None:
-    """Tallentaa lyöjätilastot SQLite-tauluun 'lyojat_statcast'."""
     try:
         yhteys = sqlite3.connect(db_polku)
         df.to_sql(KOHDE_TAULU, yhteys, if_exists="replace", index=False)
@@ -364,7 +304,6 @@ def tallenna(df: pd.DataFrame, db_polku: str = DB_POLKU) -> None:
 # ---------------------------------------------------------------------------
 
 def tulosta_top10(df: pd.DataFrame) -> None:
-    """Tulostaa TOP-10 lyöjät wOBA_All:n mukaan (min PA_raw >= MIN_PA_LISTAUS)."""
     viiva = "─" * 72
     print(f"\n{viiva}")
     print(
@@ -386,7 +325,6 @@ def tulosta_top10(df: pd.DataFrame) -> None:
     print(f"  {'─'*4} {'─'*12} {'─'*9} {'─'*8} {'─'*8} {'─'*6}")
 
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
-        # Merkitään (*) jos split on fallback (== wOBA_All)
         l_flag = " " if r["wOBA_vs_L"] != r["wOBA_All"] else "~"
         r_flag = " " if r["wOBA_vs_R"] != r["wOBA_All"] else "~"
         print(
@@ -400,14 +338,13 @@ def tulosta_top10(df: pd.DataFrame) -> None:
 
 
 def tulosta_yhteenveto(df: pd.DataFrame) -> None:
-    """Tulostaa lyhyen tilastoyhteenvedon koko lyöjädatasta."""
     viiva = "─" * 52
     riittava_pa = df[df["PA_raw"] >= MIN_PA_LISTAUS]
     print(f"\n{viiva}")
     print(f"  📊 YHTEENVETO – lyöjät_statcast")
     print(viiva)
     print(f"  Lyöjiä yhteensä (PA_w ≥ {MIN_PA_W_KOKO}): {len(df):>6,}")
-    print(f"  Lyöjiä (PA ≥ {MIN_PA_LISTAUS}):           {len(riittava_pa):>6,}")
+    print(f"  Lyöjiä (PA ≥ {MIN_PA_LISTAUS}):            {len(riittava_pa):>6,}")
     if len(riittava_pa) > 0:
         print(f"  wOBA-alue: {riittava_pa['wOBA_All'].min():.3f} – "
               f"{riittava_pa['wOBA_All'].max():.3f}  |  "
@@ -423,30 +360,22 @@ def tulosta_yhteenveto(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  wOBA + PLATOON SPLITS + HARKKA  –  Statcast 2025")
+    print(f"  ⚾  wOBA + PLATOON SPLITS  –  Statcast 2025")
     print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  "
           f"|  Min PA_w: {MIN_PA_W_KOKO}  |  Split min PA_w: {MIN_PA_W_SPLIT}")
-    print(f"  Harjoituspelien painoarvo: {WEIGHT_SPRING_TRAINING}")
     print(viiva)
 
-    # Askel 1: Lue data
     df_raa = lue_data()
-
-    # Askel 2: Suodata harjoituspelit
     df = suodata_pelikategoria(df_raa)
-
-    # Askel 3: Lisää aikapainot
-    print("\n⏳ Lasketaan aikapainot (sis. harjoituspelikertoimen) ...")
+    
+    print("\n⏳ Lasketaan aikapainot ...")
     df = lisaa_painot(df)
 
-    # Askel 4–5: Laske wOBA + splits
     print(f"\n{'─'*62}")
     df_lyojat = laske_lyojatilastot(df)
 
-    # Askel 6: Tallenna
     tallenna(df_lyojat)
 
-    # Askel 7: Tulosta
     tulosta_top10(df_lyojat)
     tulosta_yhteenveto(df_lyojat)
 
