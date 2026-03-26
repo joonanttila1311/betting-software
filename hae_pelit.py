@@ -6,8 +6,8 @@ def hae_ottelutulokset_api():
     vuosi = 2026
     print(f"Odotas, haetaan koko MLB-kauden {vuosi} ottelutulokset virallisesta rajapinnasta...")
     
-    # MLB:n virallinen ja ilmainen API-osoite otteluohjelmalle
-    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&season={vuosi}"
+    # LISÄTTY SUODATIN: &gameType=R,F,D,L,W (Vain runkosarja ja pudotuspelit)
+    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&season={vuosi}&gameType=R,F,D,L,W"
     
     # Haetaan data
     vastaus = requests.get(url)
@@ -22,6 +22,11 @@ def hae_ottelutulokset_api():
         for peli in paiva_data.get('games', []):
             # Otetaan mukaan vain pelit, jotka on pelattu loppuun (Final)
             if peli['status']['abstractGameState'] == 'Final':
+                
+                # TUPLAVARMISTUS: Hylätään S (Spring) ja E (Exhibition)
+                game_type = peli.get('gameType', '')
+                if game_type not in ['R', 'F', 'D', 'L', 'W']:
+                    continue
                 
                 # Poimitaan koti- ja vierasjoukkueen nimet ja juoksut
                 koti = peli['teams']['home']['team']['name']
@@ -41,13 +46,19 @@ def hae_ottelutulokset_api():
                 
     # Muutetaan lista Pandas-taulukoksi, jota on helppo käsitellä
     df = pd.DataFrame(pelit_lista)
-    print(f"\nLoistavaa! Löytyi {len(df)} pelattua ottelua vuodelta {vuosi}.")
+    
+    if df.empty:
+        print(f"\nYhtään runkosarjapeliä ei ole vielä pelattu/päättynyt vuodelle {vuosi}.")
+        return
+        
+    print(f"\nLoistavaa! Löytyi {len(df)} pelattua kilpailullista ottelua vuodelta {vuosi}.")
     
     # Tallennetaan SQLite-tietokantaan
     tietokanta_nimi = 'mlb_historical.db'
     yhteys = sqlite3.connect(tietokanta_nimi)
     taulun_nimi = f'ottelutulokset_{vuosi}'
     
+    # if_exists='replace' tuhoaa vanhan saastuneen taulun ja luo puhtaan tilalle
     df.to_sql(taulun_nimi, yhteys, if_exists='replace', index=False)
     yhteys.close()
     
