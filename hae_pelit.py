@@ -3,7 +3,7 @@ import pandas as pd
 import sqlite3
 
 def hae_ottelutulokset_api():
-    vuosi = 2025
+    vuosi = 2026
     print(f"Odotas, haetaan koko MLB-kauden {vuosi} ottelutulokset virallisesta rajapinnasta...")
     
     # MLB:n virallinen ja ilmainen API-osoite otteluohjelmalle
