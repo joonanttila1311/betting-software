@@ -1,9 +1,9 @@
 """
-app.py  –  MLB Vedonlyönti-UI  v9.5
+app.py  –  MLB Vedonlyönti-UI  v9.6
 ====================================
-v9.5: Dynaamiset valikkoavaimet (Dynamic Keys) tiimivaihdoksiin.
-  - Korjaa bugin, jossa pelaajalistat eivät nollaannu joukkuetta vaihtaessa.
-  - Estää "Select All" -suojakilven virheelliset laukeamiset.
+v9.6: Opener-varoitusjärjestelmä.
+  - Varoittaa visuaalisesti, jos valitun aloitussyöttäjän IP/GS on alle 3.0.
+  - Auttaa välttämään Opener-ansat ilman, että kosketaan laskennan logiikkaan.
 """
 
 import csv
@@ -346,6 +346,17 @@ with tab_analyysi:
         koti_koko, koti_lyh = pura_joukkue(koti_valinta)
         koti_sp_nimi  = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="k_sp")
 
+        # --- OPENER VAROITUS KOTI ---
+        if koti_sp_nimi in optiot_syottajat:
+            if optiot_syottajat[koti_sp_nimi]["IP"] < 3.0:
+                st.markdown(
+                    f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
+                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{optiot_syottajat[koti_sp_nimi]['IP']:.2f}</b>. "
+                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet tähän laatikkoon. Jos kyseessä on puhdas Bullpen-peli, voit ohittaa tämän."
+                    f"</div>", 
+                    unsafe_allow_html=True
+                )
+
         st.markdown("<br><b>Kotijoukkueen Lyöjät:</b>", unsafe_allow_html=True)
         koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
         koti_yh_def = koti_oletus_nimet[: min(9, len(koti_oletus_nimet))]
@@ -380,6 +391,17 @@ with tab_analyysi:
         vieras_valinta = st.selectbox("Joukkue", tiimit, index=1 if len(tiimit) > 1 else 0, key="v_team")
         vieras_koko, vieras_lyh = pura_joukkue(vieras_valinta)
         vieras_sp_nimi = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="v_sp")
+
+        # --- OPENER VAROITUS VIERAS ---
+        if vieras_sp_nimi in optiot_syottajat:
+            if optiot_syottajat[vieras_sp_nimi]["IP"] < 3.0:
+                st.markdown(
+                    f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
+                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{optiot_syottajat[vieras_sp_nimi]['IP']:.2f}</b>. "
+                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet tähän laatikkoon. Jos kyseessä on puhdas Bullpen-peli, voit ohittaa tämän."
+                    f"</div>", 
+                    unsafe_allow_html=True
+                )
 
         st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
         vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
