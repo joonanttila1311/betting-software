@@ -135,13 +135,13 @@ def lataa_syottajat():
     conn = sqlite3.connect(DB_POLKU)
     try:
         df = pd.read_sql_query(
-            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP_per_Start, p_throws "
+            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start, p_throws "
             "FROM syottajat_statcast ORDER BY Name",
             conn,
         )
     except Exception:
         df = pd.read_sql_query(
-            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP_per_Start "
+            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start "
             "FROM syottajat_statcast ORDER BY Name",
             conn,
         )
@@ -161,6 +161,7 @@ def lataa_syottajat():
             "vs_L": r["xFIP_vs_L"],
             "vs_R": r["xFIP_vs_R"],
             "IP": r["IP_per_Start"],
+            "IP_total": r.get("IP", 0.0),
             "Name": r["Name"],
             "Katisyys": katisyys,
         }
@@ -346,14 +347,36 @@ with tab_analyysi:
         koti_koko, koti_lyh = pura_joukkue(koti_valinta)
         koti_sp_nimi  = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="k_sp")
 
-        # --- OPENER VAROITUS KOTI ---
+        # --- SYÖTTÄJÄN KOJELAUTA & VAROITUKSET (KOTI) ---
         if koti_sp_nimi in optiot_syottajat:
-            if optiot_syottajat[koti_sp_nimi]["IP"] < 3.0:
+            sp_data = optiot_syottajat[koti_sp_nimi]
+            
+            # 1. Tilastotaulukko
+            st.markdown(
+                f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
+                    <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>vs L</span><br><b style='color:#e8e0d0;'>{sp_data['vs_L']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>vs R</span><br><b style='color:#e8e0d0;'>{sp_data['vs_R']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
+                    <div><span style='color:#7a6e5f;'>IP / GS</span><br><b style='color:#c8a84b;'>{sp_data['IP']:.2f}</b></div>
+                </div>""", unsafe_allow_html=True
+            )
+
+            # 2. Pienen otannan varoitus (Alle 30 IP)
+            if sp_data["IP_total"] < 30.0:
+                st.markdown(
+                    f"<div style='background-color:#2a1010; padding:10px; border-radius:5px; border:1px solid #c84b4b; font-size:0.85rem; color:#e87070; margin-bottom:10px; line-height:1.4;'>"
+                    f"⚠️ <b>VAROITUS (Pieni otanta):</b> Syöttäjällä on tietokannassa vain <b>{sp_data['IP_total']:.1f}</b> heitettyä vuoroparia. "
+                    f"Tämä xFIP-lukema ei ole vakautunut ja voi olla pelkkä suonenveto. Ammattilaiset välttävät näitä kohteita (No Bet).</div>", 
+                    unsafe_allow_html=True
+                )
+                
+            # 3. Opener varoitus (IP/GS alle 3)
+            if sp_data["IP"] < 3.0:
                 st.markdown(
                     f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
-                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{optiot_syottajat[koti_sp_nimi]['IP']:.2f}</b>. "
-                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet tähän laatikkoon. Jos kyseessä on puhdas Bullpen-peli, voit ohittaa tämän."
-                    f"</div>", 
+                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{sp_data['IP']:.2f}</b>. "
+                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet. Puhdasta bullpen-peliä varten voit ohittaa tämän.</div>", 
                     unsafe_allow_html=True
                 )
 
@@ -361,7 +384,6 @@ with tab_analyysi:
         koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
         koti_yh_def = koti_oletus_nimet[: min(9, len(koti_oletus_nimet))]
         
-        # Dynaaminen avain
         koti_yh_key = f"k_yh_{koti_lyh}"
         koti_yh = st.multiselect(
             "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
@@ -375,7 +397,6 @@ with tab_analyysi:
         koti_pe_opt = [n for n in kaikki_lyojat_nimet if n not in koti_yh]
         koti_pe_def = [n for n in koti_oletus_nimet if n not in koti_yh][: min(4, max(0, len(koti_oletus_nimet)-len(koti_yh)))]
         
-        # Dynaaminen avain
         koti_pe_key = f"k_pe_{koti_lyh}"
         koti_pe = st.multiselect(
             "Penkki (10% paino)", koti_pe_opt,
@@ -392,22 +413,43 @@ with tab_analyysi:
         vieras_koko, vieras_lyh = pura_joukkue(vieras_valinta)
         vieras_sp_nimi = st.selectbox("Aloitussyöttäjä", hae_kaikki_syottajat(), key="v_sp")
 
-        # --- OPENER VAROITUS VIERAS ---
+        # --- SYÖTTÄJÄN KOJELAUTA & VAROITUKSET (VIERAS) ---
         if vieras_sp_nimi in optiot_syottajat:
-            if optiot_syottajat[vieras_sp_nimi]["IP"] < 3.0:
+            sp_data = optiot_syottajat[vieras_sp_nimi]
+            
+            # 1. Tilastotaulukko
+            st.markdown(
+                f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
+                    <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>vs L</span><br><b style='color:#e8e0d0;'>{sp_data['vs_L']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>vs R</span><br><b style='color:#e8e0d0;'>{sp_data['vs_R']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
+                    <div><span style='color:#7a6e5f;'>IP / GS</span><br><b style='color:#c8a84b;'>{sp_data['IP']:.2f}</b></div>
+                </div>""", unsafe_allow_html=True
+            )
+
+            # 2. Pienen otannan varoitus (Alle 30 IP)
+            if sp_data["IP_total"] < 30.0:
                 st.markdown(
-                    f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
-                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{optiot_syottajat[vieras_sp_nimi]['IP']:.2f}</b>. "
-                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet tähän laatikkoon. Jos kyseessä on puhdas Bullpen-peli, voit ohittaa tämän."
-                    f"</div>", 
+                    f"<div style='background-color:#2a1010; padding:10px; border-radius:5px; border:1px solid #c84b4b; font-size:0.85rem; color:#e87070; margin-bottom:10px; line-height:1.4;'>"
+                    f"⚠️ <b>VAROITUS (Pieni otanta):</b> Syöttäjällä on tietokannassa vain <b>{sp_data['IP_total']:.1f}</b> heitettyä vuoroparia. "
+                    f"Tämä xFIP-lukema ei ole vakautunut ja voi olla pelkkä suonenveto. Ammattilaiset välttävät näitä kohteita (No Bet).</div>", 
                     unsafe_allow_html=True
                 )
+            # 3. Opener varoitus (IP/GS alle 3)
+            elif sp_data["IP"] < 3.0:
+                st.markdown(
+                    f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
+                    f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{sp_data['IP']:.2f}</b>. "
+                    f"Jos pelissä on nimetty Bulk Pitcher (pääsyöttäjä), vaihda hänet. Puhdasta bullpen-peliä varten voit ohittaa tämän.</div>", 
+                    unsafe_allow_html=True
+                )
+
 
         st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
         vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
         vieras_yh_def = vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))]
         
-        # Dynaaminen avain
         vieras_yh_key = f"v_yh_{vieras_lyh}"
         vieras_yh = st.multiselect(
             "Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet,
@@ -421,7 +463,6 @@ with tab_analyysi:
         vieras_pe_opt = [n for n in kaikki_lyojat_nimet if n not in vieras_yh]
         vieras_pe_def = [n for n in vieras_oletus_nimet if n not in vieras_yh][: min(4, max(0, len(vieras_oletus_nimet)-len(vieras_yh)))]
         
-        # Dynaaminen avain
         vieras_pe_key = f"v_pe_{vieras_lyh}"
         vieras_pe = st.multiselect(
             "Penkki (10% paino)", vieras_pe_opt,

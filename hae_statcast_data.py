@@ -76,9 +76,9 @@ def hae_pala(alku: date, loppu: date) -> pd.DataFrame | None:
             print(f"     ⚠️  Ei dataa välillä {alku_str} – {loppu_str}")
             return None
 
-        # UUSI: Suodatetaan harjoituspelit pois heti haussa! (R = Regular, P = Playoff)
+        # UUSI: Suodatetaan harjoituspelit pois heti haussa! (R = Regular)
         if 'game_type' in df.columns:
-            df = df[df['game_type'].isin(['R', 'P'])]
+            df = df[df['game_type'].isin(['R'])]
             
         if df.empty:
             print(f"     ⚠️  Ei kilpailullisia pelejä välillä {alku_str} – {loppu_str}")
