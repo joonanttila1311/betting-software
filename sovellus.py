@@ -1,5 +1,5 @@
 """
-app.py  –  MLB Vedonlyönti-UI  v9.9 (API Automaatio + Fuzzy Name Match)
+app.py  –  MLB Vedonlyönti-UI  v10.0 (API Lyöjä-automaatio & Warning Fix)
 ====================================
 """
 
@@ -124,6 +124,10 @@ def poista_aksentit(teksti: str) -> str:
     if not teksti: return ""
     return ''.join(c for c in unicodedata.normalize('NFD', teksti) if unicodedata.category(c) != 'Mn')
 
+def pura_joukkue(valinta: str) -> tuple[str, str]:
+    osat = valinta.split(" (")
+    return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
+
 @st.cache_data
 def lataa_tiimit():
     conn = sqlite3.connect(DB_POLKU)
@@ -189,7 +193,6 @@ def lataa_lyojat():
 
 @st.cache_data
 def hae_mlb_paiva(valittu_pvm):
-    """Hakee valitun päivän pelit MLB Stats API:sta."""
     paiva_str = valittu_pvm.strftime("%Y-%m-%d")
     try:
         schedule = statsapi.schedule(date=paiva_str)
@@ -202,7 +205,6 @@ def hae_mlb_paiva(valittu_pvm):
             })
         return pelit
     except Exception as e:
-        st.error(f"Virhe haettaessa pelejä: {e}")
         return []
 
 # Alustus
@@ -243,33 +245,86 @@ with col_nappi:
             peli_data = next(p for p in paivan_pelit if p['label'] == valittu_peli_label)
             game_pk = peli_data['game_pk']
             
-            # Joukkueiden asetus
-            for t_label in tiimit:
-                if peli_data['home_team'] in t_label: st.session_state['k_team'] = t_label
-                if peli_data['away_team'] in t_label: st.session_state['v_team'] = t_label
+            k_lyh_api = ""
+            v_lyh_api = ""
             
-            # Syöttäjien asetus älykkäällä haulla (Fuzzy Match & Unicodedata)
+            # 1. Joukkueiden asetus
+            for t_label in tiimit:
+                if peli_data['home_team'] in t_label: 
+                    st.session_state['k_team'] = t_label
+                    k_lyh_api = pura_joukkue(t_label)[1]
+                if peli_data['away_team'] in t_label: 
+                    st.session_state['v_team'] = t_label
+                    v_lyh_api = pura_joukkue(t_label)[1]
+            
+            # 2. Syöttäjien & Kokoonpanojen asetus (Fuzzy Match & Unicodedata)
             try:
                 peli_full = statsapi.get('game', {'gamePk': game_pk})
+                
+                # Syöttäjät
                 k_sp_nimi = peli_full['gameData']['probablePitchers'].get('home', {}).get('fullName', "")
                 v_sp_nimi = peli_full['gameData']['probablePitchers'].get('away', {}).get('fullName', "")
                 
-                def etsi_syottaja_alypyylilla(api_nimi, optiot_avaimet):
+                def etsi_pelaaja_alypyylilla(api_nimi, optiot_avaimet):
                     if not api_nimi: return None
-                    puhdas_api = poista_aksentit(api_nimi).lower().replace(",", "").replace(".", "")
+                    puhdas_api = poista_aksentit(api_nimi).lower().replace(",", "").replace(".", "").replace(" jr", "")
                     osat = puhdas_api.split()
                     for avain in optiot_avaimet:
                         puhdas_avain = poista_aksentit(avain).lower().replace(",", "").replace(".", "")
-                        # Jos KAIKKI nimen osat (esim. "zac" ja "gallen") löytyvät avaimesta, se on oikea pelaaja!
                         if all(osa in puhdas_avain for osa in osat):
                             return avain
                     return None
 
-                k_match = etsi_syottaja_alypyylilla(k_sp_nimi, optiot_syottajat.keys())
+                k_match = etsi_pelaaja_alypyylilla(k_sp_nimi, optiot_syottajat.keys())
                 if k_match: st.session_state['k_sp'] = k_match
 
-                v_match = etsi_syottaja_alypyylilla(v_sp_nimi, optiot_syottajat.keys())
+                v_match = etsi_pelaaja_alypyylilla(v_sp_nimi, optiot_syottajat.keys())
                 if v_match: st.session_state['v_sp'] = v_match
+                
+                # Kokoonpanot (Batters)
+                live_data = peli_full.get('liveData', {}).get('boxscore', {}).get('teams', {})
+                home_box = live_data.get('home', {})
+                away_box = live_data.get('away', {})
+                
+                def get_lineup_names(box_team):
+                    batting_order = box_team.get('battingOrder', [])
+                    names = []
+                    players_dict = box_team.get('players', {})
+                    for pid in batting_order:
+                        player_key = f"ID{pid}"
+                        if player_key in players_dict:
+                            names.append(players_dict[player_key]['person']['fullName'])
+                    return names
+
+                home_names = get_lineup_names(home_box)
+                away_names = get_lineup_names(away_box)
+                
+                # Aseta Koti Lyöjät
+                if len(home_names) > 0 and k_lyh_api:
+                    k_yh_key = f"k_yh_{k_lyh_api}"
+                    k_pe_key = f"k_pe_{k_lyh_api}"
+                    
+                    k_api_yh = [etsi_pelaaja_alypyylilla(n, kaikki_lyojat_nimet) for n in home_names]
+                    k_api_yh = [n for n in k_api_yh if n is not None][:9]
+                    st.session_state[k_yh_key] = k_api_yh
+                    
+                    k_def_names = [p['name'] for p in rosterit.get(k_lyh_api, [])]
+                    k_api_pe = [n for n in k_def_names if n not in k_api_yh][:4]
+                    st.session_state[k_pe_key] = k_api_pe
+                    
+                # Aseta Vieras Lyöjät
+                if len(away_names) > 0 and v_lyh_api:
+                    v_yh_key = f"v_yh_{v_lyh_api}"
+                    v_pe_key = f"v_pe_{v_lyh_api}"
+                    
+                    v_api_yh = [etsi_pelaaja_alypyylilla(n, kaikki_lyojat_nimet) for n in away_names]
+                    v_api_yh = [n for n in v_api_yh if n is not None][:9]
+                    st.session_state[v_yh_key] = v_api_yh
+                    
+                    v_def_names = [p['name'] for p in rosterit.get(v_lyh_api, [])]
+                    v_api_pe = [n for n in v_def_names if n not in v_api_yh][:4]
+                    st.session_state[v_pe_key] = v_api_pe
+                    
             except: pass
 
             st.success(f"Tiedot haettu! Voit nyt tarkistaa ja muuttaa niitä alla.")
@@ -281,10 +336,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 # ────────────────────────────────────────────────────────────────────────────
 # APUFUNKTIOT JA CALLBACKIT
 # ────────────────────────────────────────────────────────────────────────────
-
-def pura_joukkue(valinta: str) -> tuple[str, str]:
-    osat = valinta.split(" (")
-    return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
 
 def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str) -> tuple[float, float]:
     split = "wOBA_All" if vastus_sp_katisyys == "All" else f"wOBA_vs_{vastus_sp_katisyys}"
@@ -371,12 +422,11 @@ tab_analyysi, tab_seuranta = st.tabs(["⚾ Uusi Analyysi", "📂 Seuranta"])
 
 with tab_analyysi:
 
-    # --- LISÄÄ NÄMÄ NELJÄ RIVIÄ TÄHÄN ---
+    # Asetetaan Oletusjoukkueet Session Stateen (Poistaa keltaisen varoituksen!)
     if "k_team" not in st.session_state:
         st.session_state["k_team"] = tiimit[0]
     if "v_team" not in st.session_state:
         st.session_state["v_team"] = tiimit[1] if len(tiimit) > 1 else tiimit[0]
-    # ------------------------------------
 
     c1, c2, c3 = st.columns([10, 1, 10])
 
@@ -413,17 +463,24 @@ with tab_analyysi:
                 )
 
         st.markdown("<br><b>Kotijoukkueen Lyöjät:</b>", unsafe_allow_html=True)
-        koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
-        koti_yh_def = koti_oletus_nimet[: min(9, len(koti_oletus_nimet))]
         
+        # LYÖJÄT: KOTI
+        koti_oletus_nimet = [p['name'] for p in rosterit.get(koti_lyh, [])]
         koti_yh_key = f"k_yh_{koti_lyh}"
-        koti_yh = st.multiselect("Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet, default=koti_yh_def, max_selections=9, key=koti_yh_key, on_change=est_select_all, args=(koti_yh_key,))
+        
+        # Jos automaatio ei ole vielä asettanut arvoa muistiin, laitetaan oletus
+        if koti_yh_key not in st.session_state:
+            st.session_state[koti_yh_key] = koti_oletus_nimet[: min(9, len(koti_oletus_nimet))]
+            
+        koti_yh = st.multiselect("Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet, max_selections=9, key=koti_yh_key, on_change=est_select_all, args=(koti_yh_key,))
         
         koti_pe_opt = [n for n in kaikki_lyojat_nimet if n not in koti_yh]
-        koti_pe_def = [n for n in koti_oletus_nimet if n not in koti_yh][: min(4, max(0, len(koti_oletus_nimet)-len(koti_yh)))]
-        
         koti_pe_key = f"k_pe_{koti_lyh}"
-        koti_pe = st.multiselect("Penkki (10% paino)", koti_pe_opt, default=koti_pe_def, max_selections=5, key=koti_pe_key, on_change=est_select_all, args=(koti_pe_key,))
+        
+        if koti_pe_key not in st.session_state:
+            st.session_state[koti_pe_key] = [n for n in koti_oletus_nimet if n not in koti_yh][: min(4, max(0, len(koti_oletus_nimet)-len(koti_yh)))]
+            
+        koti_pe = st.multiselect("Penkki (10% paino)", koti_pe_opt, max_selections=5, key=koti_pe_key, on_change=est_select_all, args=(koti_pe_key,))
 
     with c3:
         st.markdown("### ✈️ VIERASJOUKKUE")
@@ -458,17 +515,23 @@ with tab_analyysi:
                 )
 
         st.markdown("<br><b>Vierasjoukkueen Lyöjät:</b>", unsafe_allow_html=True)
-        vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
-        vieras_yh_def = vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))]
         
+        # LYÖJÄT: VIERAS
+        vieras_oletus_nimet = [p['name'] for p in rosterit.get(vieras_lyh, [])]
         vieras_yh_key = f"v_yh_{vieras_lyh}"
-        vieras_yh = st.multiselect("Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet, default=vieras_yh_def, max_selections=9, key=vieras_yh_key, on_change=est_select_all, args=(vieras_yh_key,))
+        
+        if vieras_yh_key not in st.session_state:
+            st.session_state[vieras_yh_key] = vieras_oletus_nimet[: min(9, len(vieras_oletus_nimet))]
+            
+        vieras_yh = st.multiselect("Aloittava Yhdeksikkö (9)", kaikki_lyojat_nimet, max_selections=9, key=vieras_yh_key, on_change=est_select_all, args=(vieras_yh_key,))
         
         vieras_pe_opt = [n for n in kaikki_lyojat_nimet if n not in vieras_yh]
-        vieras_pe_def = [n for n in vieras_oletus_nimet if n not in vieras_yh][: min(4, max(0, len(vieras_oletus_nimet)-len(vieras_yh)))]
-        
         vieras_pe_key = f"v_pe_{vieras_lyh}"
-        vieras_pe = st.multiselect("Penkki (10% paino)", vieras_pe_opt, default=vieras_pe_def, max_selections=17, key=vieras_pe_key, on_change=est_select_all, args=(vieras_pe_key,))
+        
+        if vieras_pe_key not in st.session_state:
+            st.session_state[vieras_pe_key] = [n for n in vieras_oletus_nimet if n not in vieras_yh][: min(4, max(0, len(vieras_oletus_nimet)-len(vieras_yh)))]
+            
+        vieras_pe = st.multiselect("Penkki (10% paino)", vieras_pe_opt, max_selections=17, key=vieras_pe_key, on_change=est_select_all, args=(vieras_pe_key,))
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     stadion_info = STADION_DATA.get(koti_lyh, {"Stadion": "Tuntematon", "PF": 1.00, "Dome": False})
