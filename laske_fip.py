@@ -1,32 +1,10 @@
 """
-laske_fip.py  –  v4.0  (Time Decay xFIP + Platoon Splits)
+laske_fip.py  –  v4.2  (Time Decay xFIP + Platoon Splits + K-BB%)
 ===========================================================
 Laskee syöttäjäkohtaisen xFIP:n ja joukkuekohtaisen Bullpen-xFIP:n
 Statcast 2025 -raakadatasta käyttäen aikapainotettua laskentaa.
 Lisäksi lasketaan Platoon Splits: xFIP erikseen vasenkätisiä (L)
-ja oikeakätisiä (R) lyöjiä vastaan.
-
-Time Decay -logiikka:
-    max_date = datan tuorein päivämäärä
-    days_ago = (max_date - game_date).days
-    weight   = 0.5 ** (days_ago / 60.0)   → 60 pv puoliintumisaika
-
-Painotettu xFIP-kaava (käytetään kaikissa kolmessa split-laskennassa):
-    K, BB, HBP, fly_balls = weight-summat (ei rivimäärä)
-    Outs_w = sum(out_value * weight)
-    IP_w   = Outs_w / 3
-    xHR    = fly_balls * 0.105
-    xFIP   = ((13 * xHR) + (3 * (BB + HBP)) - (2 * K)) / IP_w + 3.20
-
-Platoon Split -fallback:
-    Jos xFIP_vs_L tai xFIP_vs_R on None tai IP_w < 1.0,
-    käytetään syöttäjän yleistä xFIP_All arvoa tilalla.
-
-Tallennettava IP = painottamaton (Outs_raw / 3), jotta luvut ovat
-vertailukelpoisia todellisiin inning-määriin.
-
-Käyttö:
-    python laske_fip.py
+ja oikeakätisiä (R) lyöjiä vastaan. Lisätty K-BB% syöttäjän dominanssin mittariksi.
 """
 
 import sqlite3
@@ -54,7 +32,7 @@ BULLPEN_INNING  = 6        # Bullpen alkaa tästä vuoroparista
 WEIGHT_SPRING_TRAINING = 0.20
 
 # ---------------------------------------------------------------------------
-# OUT-PAINOSANAKIRJA  (identtinen v1.0 / v2.0:n kanssa)
+# OUT-PAINOSANAKIRJA  
 # ---------------------------------------------------------------------------
 OUT_PAINOT: dict[str, int] = {
     "triple_play":                           3,
@@ -79,11 +57,9 @@ OUT_PAINOT: dict[str, int] = {
     "pickoff_caught_stealing_home":          1,
 }
 
-
 # ---------------------------------------------------------------------------
 # 1. DATAN LUKU
 # ---------------------------------------------------------------------------
-
 def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
     if not Path(db_polku).exists():
         raise FileNotFoundError(
@@ -121,15 +97,10 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
     print(f"   → {len(df):,} riviä luettu (events IS NOT NULL)")
     return df
 
-
 # ---------------------------------------------------------------------------
 # 2. PELIKATEGORIASUODATUS
 # ---------------------------------------------------------------------------
-
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Suodattaa datasta varmuuden vuoksi vain kilpailulliset pelit (R/P).
-    """
     if "game_type" in df.columns:
         df = df[df["game_type"].isin(["R", "P"])]
         counts = df["game_type"].value_counts().to_dict()
@@ -137,11 +108,9 @@ def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
         print(f"   → Pelityypit (game_type): {tyypit_str}")
     return df
 
-
 # ---------------------------------------------------------------------------
 # 3. JOUKKUEEN PÄÄTTELY
 # ---------------------------------------------------------------------------
-
 def lisaa_joukkue(df: pd.DataFrame) -> pd.DataFrame:
     for sarake in ("inning_topbot", "home_team", "away_team"):
         if sarake not in df.columns:
@@ -157,16 +126,13 @@ def lisaa_joukkue(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-
 # ---------------------------------------------------------------------------
-# 4. TIME DECAY -PAINOJEN LASKENTA (TALVIVERO-PÄIVITYS)
+# 4. TIME DECAY -PAINOJEN LASKENTA
 # ---------------------------------------------------------------------------
-
 def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     import numpy as np
     
     df = df.copy()
-
     df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
     puuttuvat = df["game_date"].isna().sum()
     if puuttuvat > 0:
@@ -221,17 +187,14 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     print(
         f"   → Lopullinen paino-alue (Time * GameType): {w_min:.4f} – 1.0000  |  "
         f"Keskiarvo: {w_mean:.4f}  |  "
-        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  "
-        f"Harkkapelipaino: {WEIGHT_SPRING_TRAINING}"
+        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv"
     )
 
     return df
 
-
 # ---------------------------------------------------------------------------
-# 5. PAINOTETTU XFIP-LASKENTA (APUFUNKTIO)
+# 5. PAINOTETTU XFIP & K-BB% LASKENTA
 # ---------------------------------------------------------------------------
-
 def laske_xfip_komponentit(ryhma: pd.DataFrame) -> dict:
     w = ryhma["weight"]
 
@@ -250,8 +213,11 @@ def laske_xfip_komponentit(ryhma: pd.DataFrame) -> dict:
 
     ip_w            = outs_w   / 3.0
     ip_raw          = outs_raw / 3.0
-
     xhr             = fly_w * HR_FB_SUHDE
+
+    # UUSI: LASKETAAN K-BB% (Strikeout% miinus Walk%)
+    tbf_w = ryhma["weight"].sum() # Total Batters Faced (painotettu)
+    k_bb_pct = (k_w - bb_w) / tbf_w if tbf_w > 0 else 0.0
 
     if ip_w < 0.01:
         xfip = None
@@ -272,13 +238,12 @@ def laske_xfip_komponentit(ryhma: pd.DataFrame) -> dict:
         "IP_w":     round(ip_w,  2),
         "IP_raw":   round(ip_raw, 2),
         "xFIP":     xfip,
+        "K_BB_pct": round(k_bb_pct, 4), # UUSI: Tallennetaan sanakirjaan
     }
-
 
 # ---------------------------------------------------------------------------
 # 5B. PLATOON SPLIT -APUFUNKTIO
 # ---------------------------------------------------------------------------
-
 def laske_split_xfip(
     ryhma: pd.DataFrame,
     katisyys: str,
@@ -299,13 +264,11 @@ def laske_split_xfip(
 
     return komp["xFIP"]
 
-
 # ---------------------------------------------------------------------------
 # 6A. SYÖTTÄJÄTAULU
 # ---------------------------------------------------------------------------
-
 def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
-    print("\n⚙️  Lasketaan syöttäjien aikapainotettu xFIP + Platoon Splits ...")
+    print("\n⚙️  Lasketaan syöttäjien aikapainotettu xFIP, K-BB% + Platoon Splits ...")
 
     rivit      = []
     ryhmittely = df.groupby("player_name", sort=True)
@@ -337,6 +300,7 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
             "xFIP_All":     xfip_all,
             "xFIP_vs_L":    xfip_vs_l,
             "xFIP_vs_R":    xfip_vs_r,
+            "K_BB_pct":     komp["K_BB_pct"], # UUSI
             "IP":           komp["IP_raw"],
             "IP_per_Start": ip_per_start,
             "p_throws":     katisyys, 
@@ -352,22 +316,21 @@ def laske_syottajat(df: pd.DataFrame) -> pd.DataFrame:
     df_out = df_out[df_out["IP"] >= MIN_IP].copy()
     print(f"   → IP-suodatus (≥ {MIN_IP}): {ennen} → {len(df_out)} syöttäjää")
 
+    # UUSI: Varmistetaan K_BB_pct sarakkeen järjestys
     return df_out.sort_values("xFIP_All").reset_index(drop=True)[
-        ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "IP", "IP_per_Start", "p_throws"]
+        ["Name", "Team", "xFIP_All", "xFIP_vs_L", "xFIP_vs_R", "K_BB_pct", "IP", "IP_per_Start", "p_throws"]
     ]
-
 
 # ---------------------------------------------------------------------------
 # 6B. BULLPEN-TAULU
 # ---------------------------------------------------------------------------
-
 def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
-    print(f"\n⚙️  Lasketaan bullpen-xFIP + Platoon Splits (inning ≥ {BULLPEN_INNING}) ...")
+    print(f"\n⚙️  Lasketaan bullpen-xFIP ja K-BB% (inning ≥ {BULLPEN_INNING}) ...")
 
     if "inning" not in df.columns:
         print("   ⚠️  Sarake 'inning' puuttuu – bullpen-laskenta ohitetaan.")
         return pd.DataFrame(
-            columns=["Team", "Bullpen_xFIP_All", "Bullpen_xFIP_vs_L", "Bullpen_xFIP_vs_R", "IP"]
+            columns=["Team", "Bullpen_xFIP_All", "Bullpen_xFIP_vs_L", "Bullpen_xFIP_vs_R", "Bullpen_K_BB_pct", "IP"]
         )
 
     df = df.copy()
@@ -393,6 +356,7 @@ def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
             "Bullpen_xFIP_All":   xfip_all,
             "Bullpen_xFIP_vs_L":  xfip_vs_l,
             "Bullpen_xFIP_vs_R":  xfip_vs_r,
+            "Bullpen_K_BB_pct":   komp["K_BB_pct"], # UUSI
             "IP":                 komp["IP_raw"],
         })
 
@@ -403,11 +367,9 @@ def laske_bullpen(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-
 # ---------------------------------------------------------------------------
 # 7. TALLENNUS
 # ---------------------------------------------------------------------------
-
 def tallenna(df: pd.DataFrame, taulu: str, db_polku: str = DB_POLKU) -> None:
     try:
         yhteys = sqlite3.connect(db_polku)
@@ -417,13 +379,11 @@ def tallenna(df: pd.DataFrame, taulu: str, db_polku: str = DB_POLKU) -> None:
     except sqlite3.Error as e:
         raise RuntimeError(f"❌ SQLite-virhe (taulu '{taulu}'): {e}") from e
 
-
 # ---------------------------------------------------------------------------
 # 8. TULOSTUS
 # ---------------------------------------------------------------------------
-
 def tulosta_top5_syottajat(df: pd.DataFrame) -> None:
-    viiva = "─" * 76
+    viiva = "─" * 84
     print(f"\n{viiva}")
     print(f"  🏆 TOP-5 ALOITUSSYÖTTÄJÄT – aikapainotettu xFIP  (IP ≥ {MIN_IP_LISTAUS})")
     print(viiva)
@@ -433,20 +393,19 @@ def tulosta_top5_syottajat(df: pd.DataFrame) -> None:
         return
     print(
         f"  {'#':<3} {'Nimi':<24} {'TM':<5} {'xFIP_All':>9} "
-        f"{'vs_L':>7} {'vs_R':>7} {'IP':>7} {'IP/GS':>6}"
+        f"{'vs_L':>7} {'vs_R':>7} {'K-BB%':>7} {'IP':>7} {'IP/GS':>6}"
     )
-    print(f"  {'─'*3} {'─'*24} {'─'*5} {'─'*9} {'─'*7} {'─'*7} {'─'*7} {'─'*6}")
+    print(f"  {'─'*3} {'─'*24} {'─'*5} {'─'*9} {'─'*7} {'─'*7} {'─'*7} {'─'*7} {'─'*6}")
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
         print(
             f"  {rank:<3} {r['Name']:<24} {str(r['Team']):<5} "
             f"{r['xFIP_All']:>9.2f} {r['xFIP_vs_L']:>7.2f} {r['xFIP_vs_R']:>7.2f} "
-            f"{r['IP']:>7.1f} {r['IP_per_Start']:>6.2f}"
+            f"{r['K_BB_pct']*100:>6.1f}% {r['IP']:>7.1f} {r['IP_per_Start']:>6.2f}"
         )
     print(viiva)
 
-
 def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
-    viiva = "─" * 64
+    viiva = "─" * 74
     print(f"\n{viiva}")
     print(f"  🏆 TOP-5 PARHAAT BULLPENIT – aikapainotettu xFIP")
     print(viiva)
@@ -456,28 +415,26 @@ def tulosta_top5_bullpen(df: pd.DataFrame) -> None:
         return
     print(
         f"  {'#':<3} {'Joukkue':<8} {'xFIP_All':>9} "
-        f"{'vs_L':>7} {'vs_R':>7} {'IP':>8}"
+        f"{'vs_L':>7} {'vs_R':>7} {'K-BB%':>7} {'IP':>8}"
     )
-    print(f"  {'─'*3} {'─'*8} {'─'*9} {'─'*7} {'─'*7} {'─'*8}")
+    print(f"  {'─'*3} {'─'*8} {'─'*9} {'─'*7} {'─'*7} {'─'*7} {'─'*8}")
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
         print(
             f"  {rank:<3} {str(r['Team']):<8} "
             f"{r['Bullpen_xFIP_All']:>9.2f} "
             f"{r['Bullpen_xFIP_vs_L']:>7.2f} {r['Bullpen_xFIP_vs_R']:>7.2f} "
-            f"{r['IP']:>8.1f}"
+            f"{r['Bullpen_K_BB_pct']*100:>6.1f}% {r['IP']:>8.1f}"
         )
     print(viiva)
-
 
 # ---------------------------------------------------------------------------
 # PÄÄOHJELMA
 # ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  xFIP v4.1 – TIME DECAY + PLATOON SPLITS  |  Statcast 2025")
-    print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}  |  Split min-IP_w: {MIN_IP_SPLIT}")
+    print(f"  ⚾  xFIP v4.2 – TIME DECAY + SPLITS + K-BB% | Statcast 2025")
+    print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  FIP-vakio: {FIP_VAKIO}")
     print(viiva)
 
     df_raa = lue_data()
@@ -498,10 +455,4 @@ if __name__ == "__main__":
 
     tulosta_top5_syottajat(df_syottajat)
     tulosta_top5_bullpen(df_bullpen)
-
-    print(f"\n  Tietokanta : {DB_POLKU}")
-    print(f"  xFIP-vakio : {FIP_VAKIO}  |  HR/FB : {HR_FB_SUHDE}")
-    print(f"  Bullpen    : inning ≥ {BULLPEN_INNING}")
-    print(f"  Decay      : paino = 0.5 ^ (days_ago / {int(PUOLIINTUMISAIKA)})")
-    print(f"  Split fallback: IP_w < {MIN_IP_SPLIT} → käytetään xFIP_All")
-    print(f"{viiva}\n")
+    print(f"\n  Yhdistetty onnistuneesti! K-BB% sarakkeet lisätty tietokantaan.")

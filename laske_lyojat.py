@@ -1,24 +1,9 @@
 """
-laske_lyojat.py
-===============
-Laskee lyöjäkohtaisen aikapainotetun wOBA:n (Weighted On-Base Average)
-ja Platoon Splits -arvot syöttäjän kätisyyden mukaan.
-
-wOBA-kaava (FanGraphs-standardipainot):
-    wOBA = Σ(tapahtuman_paino × weight) / Σ(PA × weight)
-
-Time Decay:
-    max_date = datan tuorein game_date
-    days_ago = (max_date - game_date).days
-    weight   = 0.5 ** (days_ago / 60.0)
-
-Platoon Splits:
-    wOBA_vs_L  → vain syötöt joissa p_throws == 'L'
-    wOBA_vs_R  → vain syötöt joissa p_throws == 'R'
-    Fallback: jos splitin PA_w < 10 → käytetään wOBA_All
-
-Käyttö:
-    python laske_lyojat.py
+laske_lyojat.py  –  v4.2  (wOBA + Platoon Splits + ISO)
+===========================================================
+Laskee lyöjäkohtaisen aikapainotetun wOBA:n (Weighted On-Base Average),
+Platoon Splits -arvot syöttäjän kätisyyden mukaan,
+ja lisäksi tyrmäysvoiman (ISO = Isolated Power).
 """
 
 import sqlite3
@@ -41,7 +26,7 @@ MIN_PA_LISTAUS   = 50      # minimi aito PA top-10-listauksia varten
 WEIGHT_SPRING_TRAINING = 0.20
 
 # ---------------------------------------------------------------------------
-# wOBA-PAINOT  (FanGraphs 2024-kalibrointi, vakio eri kausien välillä)
+# wOBA-PAINOT  
 # ---------------------------------------------------------------------------
 WOBA_PAINOT: dict[str, float] = {
     "walk":          0.69,
@@ -69,11 +54,9 @@ PA_TAPAHTUMAT: frozenset[str] = frozenset({
     "sac_fly",
 })
 
-
 # ---------------------------------------------------------------------------
 # 1. DATAN LUKU
 # ---------------------------------------------------------------------------
-
 def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
     if not Path(db_polku).exists():
         raise FileNotFoundError(
@@ -103,15 +86,10 @@ def lue_data(db_polku: str = DB_POLKU) -> pd.DataFrame:
     print(f"   → {len(df):,} riviä luettu")
     return df
 
-
 # ---------------------------------------------------------------------------
 # 2. PELIKATEGORIASUODATUS
 # ---------------------------------------------------------------------------
-
 def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Suodattaa datasta varmuuden vuoksi vain kilpailulliset pelit (R/P).
-    """
     if "game_type" in df.columns:
         df = df[df["game_type"].isin(["R", "P"])]
         counts = df["game_type"].value_counts().to_dict()
@@ -119,11 +97,9 @@ def suodata_pelikategoria(df: pd.DataFrame) -> pd.DataFrame:
         print(f"   → Pelityypit (game_type): {tyypit_str}")
     return df
 
-
 # ---------------------------------------------------------------------------
-# 3. TIME DECAY -PAINOT (TALVIVERO-PÄIVITYS)
+# 3. TIME DECAY -PAINOT
 # ---------------------------------------------------------------------------
-
 def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     import numpy as np
     
@@ -181,16 +157,13 @@ def lisaa_painot(df: pd.DataFrame) -> pd.DataFrame:
     print(
         f"   → Lopullinen paino-alue (Time * GameType): {df['weight'].min():.4f} – 1.0000  |  "
         f"Keskiarvo: {df['weight'].mean():.4f}  |  "
-        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  |  "
-        f"Harkkapelipaino: {WEIGHT_SPRING_TRAINING}"
+        f"Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv"
     )
     return df
 
-
 # ---------------------------------------------------------------------------
-# 4. wOBA-LASKENTA (APUFUNKTIO)
+# 4. wOBA & ISO LASKENTA 
 # ---------------------------------------------------------------------------
-
 def laske_woba(osajoukko: pd.DataFrame) -> dict:
     pa_maski = osajoukko["events"].isin(PA_TAPAHTUMAT)
     pa_df    = osajoukko[pa_maski]
@@ -199,7 +172,7 @@ def laske_woba(osajoukko: pd.DataFrame) -> dict:
     pa_w   = float(pa_df["weight"].sum())
 
     if pa_w < 0.01:
-        return {"wOBA": None, "PA_w": 0.0, "PA_raw": 0}
+        return {"wOBA": None, "PA_w": 0.0, "PA_raw": 0, "ISO": 0.0}
 
     osoittaja = float(
         pa_df.apply(
@@ -210,17 +183,25 @@ def laske_woba(osajoukko: pd.DataFrame) -> dict:
 
     woba = round(osoittaja / pa_w, 3)
 
+    # UUSI: LASKETAAN ISO (Isolated Power)
+    double_w = pa_df.loc[pa_df["events"] == "double", "weight"].sum()
+    triple_w = pa_df.loc[pa_df["events"] == "triple", "weight"].sum()
+    hr_w     = pa_df.loc[pa_df["events"] == "home_run", "weight"].sum()
+    
+    # ISO = (Tuplat + 2*Triplat + 3*Kunnarit) / PA
+    iso_osoittaja = double_w + (2.0 * triple_w) + (3.0 * hr_w)
+    iso = round(iso_osoittaja / pa_w, 3)
+
     return {
         "wOBA":    woba,
         "PA_w":    round(pa_w, 2),
         "PA_raw":  pa_raw,
+        "ISO":     iso, # UUSI: Tallennetaan sanakirjaan
     }
-
 
 # ---------------------------------------------------------------------------
 # 5. PLATOON SPLIT -APUFUNKTIO
 # ---------------------------------------------------------------------------
-
 def laske_split_woba(
     ryhma: pd.DataFrame,
     p_throws_arvo: str,
@@ -240,13 +221,11 @@ def laske_split_woba(
 
     return tulos["wOBA"]
 
-
 # ---------------------------------------------------------------------------
 # 6. PÄÄLOGIIKKA: LYÖJÄTILASTOT
 # ---------------------------------------------------------------------------
-
 def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
-    print("\n⚙️  Lasketaan lyöjien aikapainotettu wOBA + Platoon Splits ...")
+    print("\n⚙️  Lasketaan lyöjien aikapainotettu wOBA, ISO + Platoon Splits ...")
 
     rivit      = []
     ryhmittely = df.groupby("batter", sort=True)
@@ -272,6 +251,7 @@ def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
             "wOBA_All":   woba_all,
             "wOBA_vs_L":  woba_vs_l,
             "wOBA_vs_R":  woba_vs_r,
+            "ISO":        koko["ISO"], # UUSI
             "PA_raw":     koko["PA_raw"],
         })
 
@@ -284,11 +264,9 @@ def laske_lyojatilastot(df: pd.DataFrame) -> pd.DataFrame:
     print(f"   → {n:,} lyöjästä {len(df_out):,} läpäisi PA_w ≥ {MIN_PA_W_KOKO} -suodatuksen")
     return df_out.sort_values("wOBA_All", ascending=False).reset_index(drop=True)
 
-
 # ---------------------------------------------------------------------------
 # 7. TALLENNUS
 # ---------------------------------------------------------------------------
-
 def tallenna(df: pd.DataFrame, db_polku: str = DB_POLKU) -> None:
     try:
         yhteys = sqlite3.connect(db_polku)
@@ -298,13 +276,11 @@ def tallenna(df: pd.DataFrame, db_polku: str = DB_POLKU) -> None:
     except sqlite3.Error as e:
         raise RuntimeError(f"❌ SQLite-virhe tallennuksessa: {e}") from e
 
-
 # ---------------------------------------------------------------------------
 # 8. TULOSTUS
 # ---------------------------------------------------------------------------
-
 def tulosta_top10(df: pd.DataFrame) -> None:
-    viiva = "─" * 72
+    viiva = "─" * 78
     print(f"\n{viiva}")
     print(
         f"  🏆 TOP-10 LYÖJÄT – aikapainotettu wOBA  "
@@ -320,9 +296,9 @@ def tulosta_top10(df: pd.DataFrame) -> None:
 
     print(
         f"  {'#':<4} {'Batter_ID':<12} {'wOBA_All':>9} "
-        f"{'vs_L':>8} {'vs_R':>8} {'PA':>6}"
+        f"{'vs_L':>8} {'vs_R':>8} {'ISO':>6} {'PA':>6}"
     )
-    print(f"  {'─'*4} {'─'*12} {'─'*9} {'─'*8} {'─'*8} {'─'*6}")
+    print(f"  {'─'*4} {'─'*12} {'─'*9} {'─'*8} {'─'*8} {'─'*6} {'─'*6}")
 
     for rank, (_, r) in enumerate(top.iterrows(), start=1):
         l_flag = " " if r["wOBA_vs_L"] != r["wOBA_All"] else "~"
@@ -330,12 +306,11 @@ def tulosta_top10(df: pd.DataFrame) -> None:
         print(
             f"  {rank:<4} {int(r['Batter_ID']):<12} {r['wOBA_All']:>9.3f} "
             f"  {r['wOBA_vs_L']:>5.3f}{l_flag}  {r['wOBA_vs_R']:>5.3f}{r_flag} "
-            f"{int(r['PA_raw']):>6}"
+            f"{r['ISO']:>6.3f} {int(r['PA_raw']):>6}"
         )
 
     print(f"\n  ~ = split-arvo on fallback (PA_w < {MIN_PA_W_SPLIT}, käytetään wOBA_All)")
     print(viiva)
-
 
 def tulosta_yhteenveto(df: pd.DataFrame) -> None:
     viiva = "─" * 52
@@ -344,7 +319,7 @@ def tulosta_yhteenveto(df: pd.DataFrame) -> None:
     print(f"  📊 YHTEENVETO – lyöjät_statcast")
     print(viiva)
     print(f"  Lyöjiä yhteensä (PA_w ≥ {MIN_PA_W_KOKO}): {len(df):>6,}")
-    print(f"  Lyöjiä (PA ≥ {MIN_PA_LISTAUS}):            {len(riittava_pa):>6,}")
+    print(f"  Lyöjiä (PA ≥ {MIN_PA_LISTAUS}):             {len(riittava_pa):>6,}")
     if len(riittava_pa) > 0:
         print(f"  wOBA-alue: {riittava_pa['wOBA_All'].min():.3f} – "
               f"{riittava_pa['wOBA_All'].max():.3f}  |  "
@@ -352,15 +327,13 @@ def tulosta_yhteenveto(df: pd.DataFrame) -> None:
     print(f"  Taulu: '{KOHDE_TAULU}'  |  Tietokanta: '{DB_POLKU}'")
     print(viiva)
 
-
 # ---------------------------------------------------------------------------
 # PÄÄOHJELMA
 # ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     viiva = "═" * 62
     print(f"\n{viiva}")
-    print(f"  ⚾  wOBA + PLATOON SPLITS  –  Statcast 2025")
+    print(f"  ⚾  wOBA + SPLITS + ISO  –  Statcast 2025")
     print(f"  Puoliintumisaika: {int(PUOLIINTUMISAIKA)} pv  "
           f"|  Min PA_w: {MIN_PA_W_KOKO}  |  Split min PA_w: {MIN_PA_W_SPLIT}")
     print(viiva)
@@ -378,9 +351,4 @@ if __name__ == "__main__":
 
     tulosta_top10(df_lyojat)
     tulosta_yhteenveto(df_lyojat)
-
-    print(f"\n  wOBA-painot: BB={WOBA_PAINOT['walk']}  "
-          f"1B={WOBA_PAINOT['single']}  2B={WOBA_PAINOT['double']}  "
-          f"3B={WOBA_PAINOT['triple']}  HR={WOBA_PAINOT['home_run']}")
-    print(f"  Decay: paino = 0.5 ^ (days_ago / {int(PUOLIINTUMISAIKA)})")
-    print(f"{viiva}\n")
+    print(f"\n  Yhdistetty onnistuneesti! ISO-sarake lisätty tietokantaan.")

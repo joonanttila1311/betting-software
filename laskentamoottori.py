@@ -151,67 +151,79 @@ def hae_momentum(koti_nimi, vieras_nimi):
     # Palautetaan yhteinen momentum-etu kotijoukkueen näkökulmasta
     return h2h_etu + kunto_etu
 
-def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vieras_sp, vieras_bp, vieras_woba, koti_woba_bp=None, vieras_woba_bp=None, lampotila_c: int = 20, tuuli_ms: int = 0, tuuli_suunta: str = "Sivutuuli / Tyyni", koti_lyh: str = "NYY") -> dict:
+def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vieras_sp, vieras_bp, vieras_woba, koti_woba_bp=None, vieras_woba_bp=None, lampotila_c: int = 20, tuuli_ms: int = 0, tuuli_suunta: str = "Sivutuuli / Tyyni", koti_lyh: str = "NYY", koti_iso: float = 0.150, vieras_iso: float = 0.150) -> dict:
     """
-    Laskee ottelun lopputuloksen kahdessa dynaamisessa vaiheessa: 
-    Aloitussyöttäjä-vaihe ja Bullpen-vaihe.
+    Laskee ottelun lopputuloksen dynaamisesti hyödyntäen:
+    - Time Decay xFIP (SP & BP)
+    - Bullpen Leverage (1.20x)
+    - wOBA Platoon Splits
+    - K-BB% (Syöttäjän dominanssi)
+    - ISO (Lyöjien tyrmäysvoima)
     """
-    # 1. Haetaan stadionin tiedot sanakirjasta (Oletus neutraali 1.00, jos ei löydy)
+    # 1. Haetaan stadionin ja sään tiedot
     stadion = STADION_DATA.get(koti_lyh, {"Stadion": "Tuntematon", "PF": 1.00, "Dome": False})
-    # 2. Lasketaan lopullinen ympäristökerroin
     saa_kerroin = laske_saa_kerroin(lampotila_c, tuuli_ms, tuuli_suunta, stadion["Dome"])
     ymparisto_kerroin = stadion["PF"] * saa_kerroin
 
-    # TURVAVERKKO: Jos uutta BP-wobaa ei syötetä, käytetään vanhaa yhtenäistä tapaa
     if koti_woba_bp is None: koti_woba_bp = koti_woba
     if vieras_woba_bp is None: vieras_woba_bp = vieras_woba
 
-    # HAETAAN SYÖTTÖVUOROT (IP) - Tämä määrittää prosentit!
-    koti_sp_ip = koti_sp.get("IP", 5.5)
-    vieras_sp_ip = vieras_sp.get("IP", 5.5)
-    
-    # LASKETAAN DYNAAMISET PAINOTUKSET
-    koti_sp_paino = max(0.1, min(0.9, koti_sp_ip / 9.0))
-    koti_bp_paino = 1.0 - koti_sp_paino
-    
-    vieras_sp_paino = max(0.1, min(0.9, vieras_sp_ip / 9.0))
-    vieras_bp_paino = 1.0 - vieras_sp_paino
+    # =============================================================
+    # HAETAAN SYÖTTÖVUOROT JA LASKETAAN BULLPEN LEVERAGE
+    # =============================================================
+    BULLPEN_LEVERAGE = 1.20
 
-    # HAETAAN xFIP ARVOT (SP = All, BP = All)
+    koti_sp_ip_raaka = min(koti_sp.get("IP", 5.5), 8.1) 
+    koti_bp_ip_raaka = 9.0 - koti_sp_ip_raaka
+    koti_bp_ip_painotettu = koti_bp_ip_raaka * BULLPEN_LEVERAGE
+    koti_yhteensa_ip = koti_sp_ip_raaka + koti_bp_ip_painotettu
+    koti_sp_paino = koti_sp_ip_raaka / koti_yhteensa_ip
+    koti_bp_paino = koti_bp_ip_painotettu / koti_yhteensa_ip
+
+    vieras_sp_ip_raaka = min(vieras_sp.get("IP", 5.5), 8.1)
+    vieras_bp_ip_raaka = 9.0 - vieras_sp_ip_raaka
+    vieras_bp_ip_painotettu = vieras_bp_ip_raaka * BULLPEN_LEVERAGE
+    vieras_yhteensa_ip = vieras_sp_ip_raaka + vieras_bp_ip_painotettu
+    vieras_sp_paino = vieras_sp_ip_raaka / vieras_yhteensa_ip
+    vieras_bp_paino = vieras_bp_ip_painotettu / vieras_yhteensa_ip
+
+    # HAETAAN xFIP ARVOT
     koti_sp_xfip = koti_sp.get("xFIP_All", LIIGA_XFIP_KA)
     koti_bp_xfip = koti_bp.get("All", LIIGA_XFIP_KA)
     vieras_sp_xfip = vieras_sp.get("xFIP_All", LIIGA_XFIP_KA)
     vieras_bp_xfip = vieras_bp.get("All", LIIGA_XFIP_KA)
 
+    # =============================================================
+    # UUSI: HAETAAN ISO & K-BB% KERTOIMET (Liigan KA on 0.150)
+    # =============================================================
+    LIIGA_TILASTO_KA = 0.150
+
+    koti_iso_kerroin = 1.0 + (koti_iso - LIIGA_TILASTO_KA)
+    vieras_iso_kerroin = 1.0 + (vieras_iso - LIIGA_TILASTO_KA)
+
+    koti_sp_kbb = 1.0 - (koti_sp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+    koti_bp_kbb = 1.0 - (koti_bp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+    vieras_sp_kbb = 1.0 - (vieras_sp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+    vieras_bp_kbb = 1.0 - (vieras_bp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+
     # -------------------------------------------------------------
-    # 1. KOTIJOUKKUEEN HYÖKKÄYSETU (Vastassa Vieras_SP ja Vieras_BP)
+    # 1. KOTIJOUKKUEEN HYÖKKÄYSETU
     # -------------------------------------------------------------
-    # Vaihe A: Koti hyökkää vieraan aloittajaa vastaan (Kätisyys-wOBA vs SP_xFIP)
-    koti_etu_sp = (koti_woba / LIIGA_WOBA_KA) - (vieras_sp_xfip / LIIGA_XFIP_KA)
-    
-    # Vaihe B: Koti hyökkää vieraan bullpeniä vastaan (wOBA_All vs BP_xFIP)
-    koti_etu_bp = (koti_woba_bp / LIIGA_WOBA_KA) - (vieras_bp_xfip / LIIGA_XFIP_KA)
-    
-    # Yhdistetään vastustajan kestävyyden (IP) mukaan!
+    koti_etu_sp = (koti_woba / LIIGA_WOBA_KA) - (vieras_sp_xfip / LIIGA_XFIP_KA) + (koti_iso - LIIGA_TILASTO_KA) - (vieras_sp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+    koti_etu_bp = (koti_woba_bp / LIIGA_WOBA_KA) - (vieras_bp_xfip / LIIGA_XFIP_KA) + (koti_iso - LIIGA_TILASTO_KA) - (vieras_bp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
     koti_etu_perus = (koti_etu_sp * vieras_sp_paino) + (koti_etu_bp * vieras_bp_paino)
 
     # -------------------------------------------------------------
-    # 2. VIERASJOUKKUEEN HYÖKKÄYSETU (Vastassa Koti_SP ja Koti_BP)
+    # 2. VIERASJOUKKUEEN HYÖKKÄYSETU
     # -------------------------------------------------------------
-    # Vaihe A: Vieras hyökkää kodin aloittajaa vastaan
-    vieras_etu_sp = (vieras_woba / LIIGA_WOBA_KA) - (koti_sp_xfip / LIIGA_XFIP_KA)
-    
-    # Vaihe B: Vieras hyökkää kodin bullpeniä vastaan
-    vieras_etu_bp = (vieras_woba_bp / LIIGA_WOBA_KA) - (koti_bp_xfip / LIIGA_XFIP_KA)
-    
-    # Yhdistetään kotijoukkueen kestävyyden (IP) mukaan!
+    vieras_etu_sp = (vieras_woba / LIIGA_WOBA_KA) - (koti_sp_xfip / LIIGA_XFIP_KA) + (vieras_iso - LIIGA_TILASTO_KA) - (koti_sp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
+    vieras_etu_bp = (vieras_woba_bp / LIIGA_WOBA_KA) - (koti_bp_xfip / LIIGA_XFIP_KA) + (vieras_iso - LIIGA_TILASTO_KA) - (koti_bp.get("K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
     vieras_etu_perus = (vieras_etu_sp * koti_sp_paino) + (vieras_etu_bp * koti_bp_paino)
 
     # -------------------------------------------------------------
     # 3. KOTIKENTTÄ, MOMENTUM JA LOPPUTULOS
     # -------------------------------------------------------------
     koti_etu = koti_etu_perus + 0.035
-    
     momentum = hae_momentum(koti_nimi, vieras_nimi)
     koti_etu += momentum
 
@@ -220,44 +232,32 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
     vieras_tod = 1 - koti_tod
 
     # -------------------------------------------------------------
-    # 1. JUOKSUODOTUS RAAKANA (Taito: wOBA vs xFIP)
-    # Tässä kohtaa kerto-lasku toimii oikein: huono xFIP (iso luku) antaa vastustajalle juoksuja.
+    # 4. JUOKSUODOTUS RAAKANA (wOBA * xFIP * KBB * ISO)
     # -------------------------------------------------------------
     perus_odotus = 8.6 
     
-    # Koti odotus raakana
-    k_odotus_sp = (perus_odotus / 2) * (koti_woba / LIIGA_WOBA_KA) * (vieras_sp_xfip / LIIGA_XFIP_KA)
-    k_odotus_bp = (perus_odotus / 2) * (koti_woba_bp / LIIGA_WOBA_KA) * (vieras_bp_xfip / LIIGA_XFIP_KA)
+    k_odotus_sp = (perus_odotus / 2) * (koti_woba / LIIGA_WOBA_KA) * (vieras_sp_xfip / LIIGA_XFIP_KA) * vieras_sp_kbb * koti_iso_kerroin
+    k_odotus_bp = (perus_odotus / 2) * (koti_woba_bp / LIIGA_WOBA_KA) * (vieras_bp_xfip / LIIGA_XFIP_KA) * vieras_bp_kbb * koti_iso_kerroin
     k_odotus_raaka = (k_odotus_sp * vieras_sp_paino) + (k_odotus_bp * vieras_bp_paino)
 
-    # Vieras odotus raakana
-    v_odotus_sp = (perus_odotus / 2) * (vieras_woba / LIIGA_WOBA_KA) * (koti_sp_xfip / LIIGA_XFIP_KA)
-    v_odotus_bp = (perus_odotus / 2) * (vieras_woba_bp / LIIGA_WOBA_KA) * (koti_bp_xfip / LIIGA_XFIP_KA)
+    v_odotus_sp = (perus_odotus / 2) * (vieras_woba / LIIGA_WOBA_KA) * (koti_sp_xfip / LIIGA_XFIP_KA) * koti_sp_kbb * vieras_iso_kerroin
+    v_odotus_bp = (perus_odotus / 2) * (vieras_woba_bp / LIIGA_WOBA_KA) * (koti_bp_xfip / LIIGA_XFIP_KA) * koti_bp_kbb * vieras_iso_kerroin
     v_odotus_raaka = (v_odotus_sp * koti_sp_paino) + (v_odotus_bp * koti_bp_paino)
     
-    # -------------------------------------------------------------
-    # 2. KOTIETU, MOMENTUM JA YMPÄRISTÖ (Sää/Stadion)
-    # -------------------------------------------------------------
-    # Kotietu antaa perinteisesti kotiin pienen edun juoksuina (n. +0.20 juoksua)
     k_odotus_raaka += 0.20
-    
-    # Momentum (käännetään suoraan juoksuiksi, n. max +/- 0.15 juoksua)
     momentum_edge_raaka = hae_momentum(koti_nimi, vieras_nimi)
     k_odotus_raaka += (momentum_edge_raaka * 10.0)
 
-    # Ympäristön (Stadion + Sää) lopullinen isku!
     k_odotus = k_odotus_raaka * ymparisto_kerroin
     v_odotus = v_odotus_raaka * ymparisto_kerroin
     total_odotus = k_odotus + v_odotus
 
     # -------------------------------------------------------------
-    # 3. LOPPUTULOS: VOITTOTODENNÄKÖISYYS (Pythagorean Expectation)
-    # Vegas-standardi tapa kääntää juoksut prosenteiksi (eksponentti 1.83)
+    # 5. LOPPUTULOS (Pythagorean Expectation)
     # -------------------------------------------------------------
     koti_tod = (k_odotus ** 1.83) / ((k_odotus ** 1.83) + (v_odotus ** 1.83))
     vieras_tod = 1.0 - koti_tod
 
-    # Lasketaan yhdistetty wOBA UI:ta varten näyttöön
     koti_woba_total = (koti_woba * vieras_sp_paino) + (koti_woba_bp * vieras_bp_paino)
     vieras_woba_total = (vieras_woba * koti_sp_paino) + (vieras_woba_bp * koti_bp_paino)
 

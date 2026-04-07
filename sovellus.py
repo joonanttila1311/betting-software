@@ -50,8 +50,10 @@ CSV_SARAKKEET = [
     "Pvm", "Koti", "Vieras",
     "Koti %", "Vieras %",
     "Koti kerroin", "Vieras kerroin",
-    "Koti SP xFIP", "Koti BP xFIP", "Koti wOBA",
-    "Vieras SP xFIP", "Vieras BP xFIP", "Vieras wOBA",
+    "Koti SP xFIP", "Koti BP xFIP", "Koti wOBA", "Koti ISO", "Koti SP K-BB%",
+    "Koti SP IP", "Koti SP IP/GS",
+    "Vieras SP xFIP", "Vieras BP xFIP", "Vieras wOBA", "Vieras ISO", "Vieras SP K-BB%",
+    "Vieras SP IP", "Vieras SP IP/GS",
     "O/U odotus", "Koti odotus", "Vieras odotus",
     "Koti tulos", "Vieras tulos",
 ]
@@ -135,7 +137,7 @@ def lataa_syottajat():
     conn = sqlite3.connect(DB_POLKU)
     try:
         df = pd.read_sql_query(
-            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start, p_throws "
+            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start, p_throws, K_BB_pct "
             "FROM syottajat_statcast ORDER BY Name",
             conn,
         )
@@ -146,24 +148,23 @@ def lataa_syottajat():
             conn,
         )
         df["p_throws"] = "R"
+        df["K_BB_pct"] = 0.150 # Liigan KA fallback
     conn.close()
 
     optiot = {}
     for _, r in df.iterrows():
         katisyys = r.get("p_throws", "R")
-        if pd.isna(katisyys):
-            katisyys = "R"
-        avain = (
-            f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
-        )
+        if pd.isna(katisyys): katisyys = "R"
+        avain = f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
         optiot[avain] = {
             "xFIP_All": r["xFIP_All"],
             "vs_L": r["xFIP_vs_L"],
             "vs_R": r["xFIP_vs_R"],
-            "IP": r["IP_per_Start"],
-            "IP_total": r.get("IP", 0.0),
+            "IP": r["IP_per_Start"],       
+            "IP_total": r.get("IP", 0.0),  
             "Name": r["Name"],
             "Katisyys": katisyys,
+            "K_BB_pct": r.get("K_BB_pct", 0.150) # UUSI
         }
     return optiot
 
@@ -171,11 +172,17 @@ def lataa_syottajat():
 @st.cache_data
 def lataa_bullpenit():
     conn = sqlite3.connect(DB_POLKU)
-    df = pd.read_sql_query(
-        "SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R "
-        "FROM bullpen_statcast",
-        conn,
-    )
+    try:
+        df = pd.read_sql_query(
+            "SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R, Bullpen_K_BB_pct "
+            "FROM bullpen_statcast", conn
+        )
+    except Exception:
+        df = pd.read_sql_query(
+            "SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R "
+            "FROM bullpen_statcast", conn
+        )
+        df["Bullpen_K_BB_pct"] = 0.150
     conn.close()
     df = df.set_index("Team")
     return {
@@ -183,6 +190,7 @@ def lataa_bullpenit():
             "All": row["Bullpen_xFIP_All"],
             "vs_L": row["Bullpen_xFIP_vs_L"],
             "vs_R": row["Bullpen_xFIP_vs_R"],
+            "K_BB_pct": row.get("Bullpen_K_BB_pct", 0.150) # UUSI
         }
         for team, row in df.iterrows()
     }
@@ -201,7 +209,7 @@ def lataa_lyojat():
     try:
         conn = sqlite3.connect(DB_POLKU)
         df = pd.read_sql_query(
-            "SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R FROM lyojat_statcast",
+            "SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R, ISO FROM lyojat_statcast",
             conn,
         )
         conn.close()
@@ -240,41 +248,46 @@ def pura_joukkue(valinta: str) -> tuple[str, str]:
     return osat[0], osat[1].replace(")", "") if len(osat) > 1 else osat[0]
 
 
-def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_kasisyys: str) -> float:
-    split = (
-        "wOBA_All" if vastus_sp_kasisyys == "All"
-        else f"wOBA_vs_{vastus_sp_kasisyys}"
-    )
+def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str) -> tuple[float, float]:
+    """Palauttaa joukkueen yhdistetyn (wOBA, ISO) tuloksen."""
+    split = "wOBA_All" if vastus_sp_katisyys == "All" else f"wOBA_vs_{vastus_sp_katisyys}"
+    LIIGA_ISO_KA = 0.150
 
     def hae_arvot(nimet):
-        lst = []
+        woba_lst, iso_lst = [], []
         for puhtaanimi in nimet:
             pid = kaikki_lyojat_id.get(puhtaanimi)
             if pid and not df_lyojat.empty and pid in df_lyojat.index:
-                v = df_lyojat.loc[pid].get(
-                    split, df_lyojat.loc[pid].get("wOBA_All")
-                )
-                lst.append(float(v) if pd.notna(v) else LIIGA_WOBA_KA)
+                w_v = df_lyojat.loc[pid].get(split, df_lyojat.loc[pid].get("wOBA_All"))
+                i_v = df_lyojat.loc[pid].get("ISO", LIIGA_ISO_KA)
+                woba_lst.append(float(w_v) if pd.notna(w_v) else LIIGA_WOBA_KA)
+                iso_lst.append(float(i_v) if pd.notna(i_v) else LIIGA_ISO_KA)
             else:
-                lst.append(LIIGA_WOBA_KA)
-        return lst
+                woba_lst.append(LIIGA_WOBA_KA)
+                iso_lst.append(LIIGA_ISO_KA)
+        return woba_lst, iso_lst
 
-    yh_lst = hae_arvot(yh_nimet)
-    pe_lst = hae_arvot(pe_nimet)
+    yh_woba, yh_iso = hae_arvot(yh_nimet)
+    pe_woba, pe_iso = hae_arvot(pe_nimet)
     
-    # VEGAS-STANDARDI PÄIVITYS (v9.6): 
-    # Täydennetään vajaat kokoonpanot liigan keskiarvolla (0.310).
-    # Aloittava yhdeksikkö on MLB:ssä aina 9 miestä.
-    puuttuvat_yh = max(0, 9 - len(yh_lst))
-    yh_lst.extend([LIIGA_WOBA_KA] * puuttuvat_yh)
-    yh_ka = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_WOBA_KA
+    # Täydennetään liigan keskiarvoilla jos alle 9 lyöjää
+    puuttuvat_yh = max(0, 9 - len(yh_woba))
+    yh_woba.extend([LIIGA_WOBA_KA] * puuttuvat_yh)
+    yh_iso.extend([LIIGA_ISO_KA] * puuttuvat_yh)
+    yh_w_ka = sum(yh_woba) / len(yh_woba) if yh_woba else LIIGA_WOBA_KA
+    yh_i_ka = sum(yh_iso) / len(yh_iso) if yh_iso else LIIGA_ISO_KA
     
-    # MLB-penkillä on normaalisti aina 4 kenttäpelaajaa (13 syöttäjää, 9 aloittajaa, 4 penkillä).
-    puuttuvat_pe = max(0, 4 - len(pe_lst))
-    pe_lst.extend([LIIGA_WOBA_KA] * puuttuvat_pe)
-    pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_WOBA_KA
+    puuttuvat_pe = max(0, 4 - len(pe_woba))
+    pe_woba.extend([LIIGA_WOBA_KA] * puuttuvat_pe)
+    pe_iso.extend([LIIGA_ISO_KA] * puuttuvat_pe)
+    pe_w_ka = sum(pe_woba) / len(pe_woba) if pe_woba else LIIGA_WOBA_KA
+    pe_i_ka = sum(pe_iso) / len(pe_iso) if pe_iso else LIIGA_ISO_KA
     
-    return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)
+    # 90% Yhdeksikkö / 10% Penkki
+    lopullinen_woba = round((yh_w_ka * 0.90) + (pe_w_ka * 0.10), 3)
+    lopullinen_iso = round((yh_i_ka * 0.90) + (pe_i_ka * 0.10), 3)
+    
+    return lopullinen_woba, lopullinen_iso
 
 
 def hae_kaikki_syottajat() -> list[str]:
@@ -355,10 +368,10 @@ with tab_analyysi:
             st.markdown(
                 f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
                     <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>K-BB%</span><br><b style='color:#4bc84b;'>{sp_data.get('K_BB_pct', 0.150)*100:.1f}%</b></div>
                     <div><span style='color:#7a6e5f;'>vs L</span><br><b style='color:#e8e0d0;'>{sp_data['vs_L']:.2f}</b></div>
                     <div><span style='color:#7a6e5f;'>vs R</span><br><b style='color:#e8e0d0;'>{sp_data['vs_R']:.2f}</b></div>
                     <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
-                    <div><span style='color:#7a6e5f;'>IP / GS</span><br><b style='color:#c8a84b;'>{sp_data['IP']:.2f}</b></div>
                 </div>""", unsafe_allow_html=True
             )
 
@@ -421,10 +434,10 @@ with tab_analyysi:
             st.markdown(
                 f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
                     <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
+                    <div><span style='color:#7a6e5f;'>K-BB%</span><br><b style='color:#4bc84b;'>{sp_data.get('K_BB_pct', 0.150)*100:.1f}%</b></div>
                     <div><span style='color:#7a6e5f;'>vs L</span><br><b style='color:#e8e0d0;'>{sp_data['vs_L']:.2f}</b></div>
                     <div><span style='color:#7a6e5f;'>vs R</span><br><b style='color:#e8e0d0;'>{sp_data['vs_R']:.2f}</b></div>
                     <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
-                    <div><span style='color:#7a6e5f;'>IP / GS</span><br><b style='color:#c8a84b;'>{sp_data['IP']:.2f}</b></div>
                 </div>""", unsafe_allow_html=True
             )
 
@@ -504,18 +517,18 @@ with tab_analyysi:
     saa_c1, saa_c2, saa_c3 = st.columns(3)
 
     with saa_c1:
-        lampotila = st.number_input(
-            "🌡️ Lämpötila (°C)",
-            min_value=-10, max_value=45, value=20, step=1,
+        lampotila_f = st.number_input(
+            "🌡️ Lämpötila (°F)",
+            min_value=10, max_value=120, value=68, step=1,
             key="lampotila",
             disabled=on_dome,
         )
 
     with saa_c2:
-        tuuli_ms = st.number_input(
-            "💨 Tuuli (m/s)",
-            min_value=0.0, max_value=30.0, value=0.0, step=0.5,
-            key="tuuli_ms",
+        tuuli_mph = st.number_input(
+            "💨 Tuuli (mph)",
+            min_value=0.0, max_value=60.0, value=0.0, step=1.0,
+            key="tuuli_mph",
             disabled=on_dome,
         )
 
@@ -549,8 +562,9 @@ with tab_analyysi:
             "vieras_sp_nimi":  vieras_sp_nimi,
             "vieras_yh":       vieras_yh,
             "vieras_pe":       vieras_pe,
-            "lampotila_c":     20 if on_dome else int(lampotila),
-            "tuuli_ms":        0.0 if on_dome else float(tuuli_ms),
+            # MUUNNOS: Fahrenheit -> Celsius, mph -> m/s
+            "lampotila_c":     20 if on_dome else int(round((lampotila_f - 32) * 5/9)),
+            "tuuli_ms":        0.0 if on_dome else float(tuuli_mph * 0.44704),
             "tuuli_suunta":    "Sivutuuli / Tyyni" if on_dome else tuuli_suunta,
         }
         if "tallennettu_viesti" in st.session_state:
@@ -563,17 +577,17 @@ with tab_analyysi:
         koti_sp_data   = optiot_syottajat[inp["koti_sp_nimi"]]
         vieras_sp_data = optiot_syottajat[inp["vieras_sp_nimi"]]
 
-        koti_bp_data   = bp_dict.get(inp["koti_lyh"],   {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80})
-        vieras_bp_data = bp_dict.get(inp["vieras_lyh"], {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80})
+        koti_bp_data   = bp_dict.get(inp["koti_lyh"],   {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "K_BB_pct": 0.150})
+        vieras_bp_data = bp_dict.get(inp["vieras_lyh"], {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "K_BB_pct": 0.150})
 
         koti_sp_arm   = koti_sp_data.get("Katisyys", "R")
         vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
 
-        koti_woba_sp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], vieras_sp_arm)
-        vieras_woba_sp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], koti_sp_arm)
+        koti_woba_sp, koti_iso   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], vieras_sp_arm)
+        vieras_woba_sp, vieras_iso = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], koti_sp_arm)
 
-        koti_woba_bp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], "All")
-        vieras_woba_bp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], "All")
+        koti_woba_bp, _   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], "All")
+        vieras_woba_bp, _ = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], "All")
 
         tulos = laske_todennakoisyys(
             inp["koti_koko"], inp["vieras_koko"],
@@ -589,6 +603,8 @@ with tab_analyysi:
             tuuli_ms=inp["tuuli_ms"],
             tuuli_suunta=inp["tuuli_suunta"],
             koti_lyh=inp["koti_lyh"],
+            koti_iso=koti_iso,
+            vieras_iso=vieras_iso
         )
 
         k_pct  = tulos["koti_voitto_tod"]   * 100
@@ -607,9 +623,17 @@ with tab_analyysi:
             "Koti SP xFIP":   f"{tulos['koti_sp_dyn']:.2f}",
             "Koti BP xFIP":   f"{tulos['koti_bp_dyn']:.2f}",
             "Koti wOBA":      f"{tulos['koti_woba_total']:.3f}",
+            "Koti ISO":       f"{koti_iso:.3f}",                              # <-- UUSI
+            "Koti SP K-BB%":  f"{koti_sp_data.get('K_BB_pct', 0.15)*100:.1f}%", # <-- UUSI
+            "Koti SP IP":     f"{koti_sp_data['IP_total']:.1f}",
+            "Koti SP IP/GS":  f"{koti_sp_data['IP']:.2f}",
             "Vieras SP xFIP": f"{tulos['vieras_sp_dyn']:.2f}",
             "Vieras BP xFIP": f"{tulos['vieras_bp_dyn']:.2f}",
             "Vieras wOBA":    f"{tulos['vieras_woba_total']:.3f}",
+            "Vieras ISO":     f"{vieras_iso:.3f}",                                # <-- UUSI
+            "Vieras SP K-BB%":f"{vieras_sp_data.get('K_BB_pct', 0.15)*100:.1f}%", # <-- UUSI
+            "Vieras SP IP":   f"{vieras_sp_data['IP_total']:.1f}",
+            "Vieras SP IP/GS":f"{vieras_sp_data['IP']:.2f}",
             "O/U odotus":     f"{tulos['total_odotus']:.1f}",
             "Koti odotus":    f"{tulos['k_odotus']:.1f}",
             "Vieras odotus":  f"{tulos['v_odotus']:.1f}",
@@ -676,8 +700,10 @@ with tab_analyysi:
         def detail_card_html(
             joukkue: str,
             sp_xfip: float,
+            sp_kbb: float,    # <-- UUSI PARAMETRI
             bp_xfip: float,
             woba: float,
+            iso_arvo: float,
             sp_arm: str,
             stadion_nimi: str | None = None,
         ) -> str:
@@ -697,6 +723,10 @@ with tab_analyysi:
                 f"  <span class='detail-val green'>{sp_xfip:.2f}</span>"
                 f"</div>"
                 f"<div class='detail-row'>"
+                f"  <span class='detail-key'>Aloittajan K-BB%</span>"
+                f"  <span class='detail-val green'>{sp_kbb*100:.1f}%</span>" # <-- UUSI RIVI
+                f"</div>"
+                f"<div class='detail-row'>"
                 f"  <span class='detail-key'>Bullpen xFIP</span>"
                 f"  <span class='detail-val green'>{bp_xfip:.2f}</span>"
                 f"</div>"
@@ -706,24 +736,25 @@ with tab_analyysi:
                 f"      &nbsp;(vs {sp_arm}HP)</span></span>"
                 f"  <span class='detail-val gold'>{woba:.3f}</span>"
                 f"</div>"
+                f"<div class='detail-row'>"
+                f"  <span class='detail-key'>Tyrmäysvoima (ISO)</span>"
+                f"  <span class='detail-val gold'>{iso_arvo:.3f}</span>"
+                f"</div>"
                 f"{stadion_rivi}"
                 f"</div>"
             )
-
-        stadion_nimi_tulos = tulos.get(
-            "stadion_nimi",
-            STADION_DATA.get(inp["koti_lyh"], {}).get("Stadion", "Tuntematon"),
-        )
 
         with det_c1:
             st.markdown(
                 detail_card_html(
                     inp["koti_koko"],
                     tulos["koti_sp_dyn"],
+                    koti_sp_data.get("K_BB_pct", 0.150), # <-- LISÄTTIIN KUTSUUN
                     tulos["koti_bp_dyn"],
                     koti_woba_sp,
+                    koti_iso,
                     vieras_sp_arm,
-                    stadion_nimi=stadion_nimi_tulos,
+                    stadion_nimi=tulos.get("stadion_nimi"),
                 ),
                 unsafe_allow_html=True,
             )
@@ -733,8 +764,10 @@ with tab_analyysi:
                 detail_card_html(
                     inp["vieras_koko"],
                     tulos["vieras_sp_dyn"],
+                    vieras_sp_data.get("K_BB_pct", 0.150), # <-- LISÄTTIIN KUTSUUN
                     tulos["vieras_bp_dyn"],
                     vieras_woba_sp,
+                    vieras_iso,
                     koti_sp_arm,
                     stadion_nimi=None,
                 ),
@@ -801,9 +834,17 @@ with tab_seuranta:
                 "Koti SP xFIP":   st.column_config.TextColumn("K SP",        width="small"),
                 "Koti BP xFIP":   st.column_config.TextColumn("K BP",        width="small"),
                 "Koti wOBA":      st.column_config.TextColumn("K wOBA",      width="small"),
+                "Koti ISO":       st.column_config.TextColumn("K ISO",       width="small"), # <-- UUSI
+                "Koti SP K-BB%":  st.column_config.TextColumn("K K-BB%",     width="small"), # <-- UUSI
+                "Koti SP IP":     st.column_config.TextColumn("K IP",        width="small"), 
+                "Koti SP IP/GS":  st.column_config.TextColumn("K IP/GS",     width="small"), 
                 "Vieras SP xFIP": st.column_config.TextColumn("V SP",        width="small"),
                 "Vieras BP xFIP": st.column_config.TextColumn("V BP",        width="small"),
                 "Vieras wOBA":    st.column_config.TextColumn("V wOBA",      width="small"),
+                "Vieras ISO":     st.column_config.TextColumn("V ISO",       width="small"), # <-- UUSI
+                "Vieras SP K-BB%":st.column_config.TextColumn("V K-BB%",     width="small"), # <-- UUSI
+                "Vieras SP IP":   st.column_config.TextColumn("V IP",        width="small"), 
+                "Vieras SP IP/GS":st.column_config.TextColumn("V IP/GS",     width="small"), 
                 "O/U odotus":     st.column_config.TextColumn("O/U",         width="small"),
                 "Koti odotus":    st.column_config.TextColumn("Koti O",      width="small"),
                 "Vieras odotus":  st.column_config.TextColumn("Vieras O",    width="small"),
