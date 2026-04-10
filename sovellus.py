@@ -206,15 +206,16 @@ def lataa_rosterit():
 def lataa_lyojat():
     try:
         conn = sqlite3.connect(DB_POLKU)
-        # LISÄTTY ISO_All
+        # KORJAUS: Sarake tietokannassa on "ISO", ei "ISO_All"
         df = pd.read_sql_query(
-            "SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R, ISO_All FROM lyojat_statcast",
+            "SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R, ISO FROM lyojat_statcast",
             conn,
         )
         conn.close()
         df["Batter_ID"] = df["Batter_ID"].astype(int)
         return df.set_index("Batter_ID")
-    except Exception:
+    except Exception as e:
+        print(f"Tietokantavirhe (lyöjät): {e}") # Nyt näemme konsolissa jos haku epäonnistuu
         return pd.DataFrame()
 
 @st.cache_data
@@ -370,11 +371,13 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str
         lst = []
         for puhtaanimi in nimet:
             pid = kaikki_lyojat_id.get(puhtaanimi)
-            if pid and not df_lyojat.empty and pid in df_lyojat.index:
-                v = df_lyojat.loc[pid].get(split, df_lyojat.loc[pid].get("wOBA_All"))
-                lst.append(float(v) if pd.notna(v) else LIIGA_WOBA_KA)
-            else:
-                lst.append(LIIGA_WOBA_KA)
+            if pid is not None and not df_lyojat.empty:
+                pid_int = int(pid) # Varmistetaan, että ID on numero
+                if pid_int in df_lyojat.index:
+                    v = df_lyojat.loc[pid_int].get(split, df_lyojat.loc[pid_int].get("wOBA_All"))
+                    lst.append(float(v) if pd.notna(v) else LIIGA_WOBA_KA)
+                    continue
+            lst.append(LIIGA_WOBA_KA)
         return lst
 
     yh_lst = hae_arvot(yh_nimet)
@@ -392,18 +395,20 @@ def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str
 
 
 def laske_joukkueen_iso(yh_nimet: list, pe_nimet: list) -> float:
-    """Laskee joukkueen ISO-arvon (90% aloittajat / 10% penkki) - Täydellinen kopio wOBA-logiikasta."""
+    """Laskee joukkueen ISO-arvon (90% aloittajat / 10% penkki)."""
     LIIGA_ISO_KA = 0.150
 
     def hae_arvot(nimet):
         lst = []
         for puhtaanimi in nimet:
             pid = kaikki_lyojat_id.get(puhtaanimi)
-            if pid and not df_lyojat.empty and pid in df_lyojat.index:
-                v = df_lyojat.loc[pid].get("ISO_All")
-                lst.append(float(v) if pd.notna(v) else LIIGA_ISO_KA)
-            else:
-                lst.append(LIIGA_ISO_KA)
+            if pid is not None and not df_lyojat.empty:
+                pid_int = int(pid) # Varmistetaan, että ID on numero
+                if pid_int in df_lyojat.index:
+                    v = df_lyojat.loc[pid_int].get("ISO") # KORJAUS: "ISO", ei "ISO_All"
+                    lst.append(float(v) if pd.notna(v) else LIIGA_ISO_KA)
+                    continue
+            lst.append(LIIGA_ISO_KA)
         return lst
 
     yh_lst = hae_arvot(yh_nimet)
@@ -417,7 +422,7 @@ def laske_joukkueen_iso(yh_nimet: list, pe_nimet: list) -> float:
     pe_lst.extend([LIIGA_ISO_KA] * puuttuvat_pe)
     pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_ISO_KA
     
-    return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)        
+    return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)       
 
 
 def hae_kaikki_syottajat() -> list[str]:
@@ -425,10 +430,15 @@ def hae_kaikki_syottajat() -> list[str]:
     return kaikki if kaikki else ["(Ei syöttäjiä)"]
 
 def est_select_all(l_key):
+    # TURVALUKKO: Jos avainta ei vielä ole session statessa, keskeytetään
+    if l_key not in st.session_state:
+        return
+
     prev_key = l_key + "_prev"
     current = st.session_state[l_key]
     prev = st.session_state.get(prev_key, current)
     uusien_maara = len(set(current) - set(prev))
+    
     if uusien_maara > 1:
         st.session_state[l_key] = prev
         st.toast("🛡️ 'Select All' -painallus estetty! Aiemmat valintasi on turvattu.", icon="🚫")
