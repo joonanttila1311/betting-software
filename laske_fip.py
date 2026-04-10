@@ -21,8 +21,8 @@ LAHDE_TAULU     = "statcast_2025"
 TAULU_SYOTTAJAT = "syottajat_statcast"
 TAULU_BULLPEN   = "bullpen_statcast"
 
-FIP_VAKIO       = 3.20     # Kalibrointivakio
-HR_FB_SUHDE     = 0.105    # MLB:n historiallinen HR/fly_ball-suhde
+FIP_VAKIO       = 3.65     # Kalibrointivakio
+HR_FB_SUHDE     = 0.115    # MLB:n historiallinen HR/fly_ball-suhde
 PUOLIINTUMISAIKA = 150.0    # Päiviä: paino putoaa puoleen 150 pv:ssä
 MIN_IP          = 10.0     # Minimi-IP syöttäjätauluun
 MIN_IP_LISTAUS  = 20.0     # Minimi-IP top-5-listauksia varten

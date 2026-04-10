@@ -140,12 +140,17 @@ def lataa_tiimit():
 def lataa_syottajat():
     conn = sqlite3.connect(DB_POLKU)
     try:
+        # LISÄTTY K_BB_pct hakeminen tietokannasta
         df = pd.read_sql_query(
-            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start, p_throws, K_BB_pct FROM syottajat_statcast ORDER BY Name", conn
+            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start, p_throws, K_BB_pct "
+            "FROM syottajat_statcast ORDER BY Name",
+            conn,
         )
     except Exception:
         df = pd.read_sql_query(
-            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start FROM syottajat_statcast ORDER BY Name", conn
+            "SELECT Name, Team, xFIP_All, xFIP_vs_L, xFIP_vs_R, IP, IP_per_Start "
+            "FROM syottajat_statcast ORDER BY Name",
+            conn,
         )
         df["p_throws"] = "R"
         df["K_BB_pct"] = 0.150
@@ -154,26 +159,43 @@ def lataa_syottajat():
     optiot = {}
     for _, r in df.iterrows():
         katisyys = r.get("p_throws", "R")
-        if pd.isna(katisyys): katisyys = "R"
-        avain = f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
+        if pd.isna(katisyys):
+            katisyys = "R"
+        avain = (
+            f"{r['Name']} | {katisyys}HP | xFIP: {r['xFIP_All']:.2f}"
+        )
         optiot[avain] = {
-            "xFIP_All": r["xFIP_All"], "vs_L": r["xFIP_vs_L"], "vs_R": r["xFIP_vs_R"],
-            "IP": r["IP_per_Start"], "IP_total": r.get("IP", 0.0),  
-            "Name": r["Name"], "Katisyys": katisyys, "K_BB_pct": r.get("K_BB_pct", 0.150)
+            "xFIP_All": r["xFIP_All"],
+            "vs_L": r["xFIP_vs_L"],
+            "vs_R": r["xFIP_vs_R"],
+            "IP": r["IP_per_Start"],
+            "IP_total": r.get("IP", 0.0),
+            "Name": r["Name"],
+            "Katisyys": katisyys,
+            "K_BB_pct": r.get("K_BB_pct", 0.150), # TÄSSÄ!
         }
     return optiot
 
 @st.cache_data
 def lataa_bullpenit():
     conn = sqlite3.connect(DB_POLKU)
-    try:
-        df = pd.read_sql_query("SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R, Bullpen_K_BB_pct FROM bullpen_statcast", conn)
-    except Exception:
-        df = pd.read_sql_query("SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R FROM bullpen_statcast", conn)
-        df["Bullpen_K_BB_pct"] = 0.150
+    # LISÄTTY Bullpen_K_BB_pct
+    df = pd.read_sql_query(
+        "SELECT Team, Bullpen_xFIP_All, Bullpen_xFIP_vs_L, Bullpen_xFIP_vs_R, Bullpen_K_BB_pct "
+        "FROM bullpen_statcast",
+        conn,
+    )
     conn.close()
     df = df.set_index("Team")
-    return {team: {"All": row["Bullpen_xFIP_All"], "vs_L": row["Bullpen_xFIP_vs_L"], "vs_R": row["Bullpen_xFIP_vs_R"], "K_BB_pct": row.get("Bullpen_K_BB_pct", 0.150)} for team, row in df.iterrows()}
+    return {
+        team: {
+            "All": row["Bullpen_xFIP_All"],
+            "vs_L": row["Bullpen_xFIP_vs_L"],
+            "vs_R": row["Bullpen_xFIP_vs_R"],
+            "Bullpen_K_BB_pct": row.get("Bullpen_K_BB_pct", 0.150) # TÄSSÄ!
+        }
+        for team, row in df.iterrows()
+    }
 
 @st.cache_data
 def lataa_rosterit():
@@ -184,7 +206,11 @@ def lataa_rosterit():
 def lataa_lyojat():
     try:
         conn = sqlite3.connect(DB_POLKU)
-        df = pd.read_sql_query("SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R, ISO FROM lyojat_statcast", conn)
+        # LISÄTTY ISO_All
+        df = pd.read_sql_query(
+            "SELECT Batter_ID, wOBA_All, wOBA_vs_L, wOBA_vs_R, ISO_All FROM lyojat_statcast",
+            conn,
+        )
         conn.close()
         df["Batter_ID"] = df["Batter_ID"].astype(int)
         return df.set_index("Batter_ID")
@@ -337,43 +363,62 @@ st.markdown('</div>', unsafe_allow_html=True)
 # APUFUNKTIOT JA CALLBACKIT
 # ────────────────────────────────────────────────────────────────────────────
 
-def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str) -> tuple[float, float]:
+def laske_joukkueen_woba(yh_nimet: list, pe_nimet: list, vastus_sp_katisyys: str) -> float:
     split = "wOBA_All" if vastus_sp_katisyys == "All" else f"wOBA_vs_{vastus_sp_katisyys}"
-    LIIGA_ISO_KA = 0.150
 
     def hae_arvot(nimet):
-        woba_lst, iso_lst = [], []
+        lst = []
         for puhtaanimi in nimet:
             pid = kaikki_lyojat_id.get(puhtaanimi)
             if pid and not df_lyojat.empty and pid in df_lyojat.index:
-                w_v = df_lyojat.loc[pid].get(split, df_lyojat.loc[pid].get("wOBA_All"))
-                i_v = df_lyojat.loc[pid].get("ISO", LIIGA_ISO_KA)
-                woba_lst.append(float(w_v) if pd.notna(w_v) else LIIGA_WOBA_KA)
-                iso_lst.append(float(i_v) if pd.notna(i_v) else LIIGA_ISO_KA)
+                v = df_lyojat.loc[pid].get(split, df_lyojat.loc[pid].get("wOBA_All"))
+                lst.append(float(v) if pd.notna(v) else LIIGA_WOBA_KA)
             else:
-                woba_lst.append(LIIGA_WOBA_KA)
-                iso_lst.append(LIIGA_ISO_KA)
-        return woba_lst, iso_lst
+                lst.append(LIIGA_WOBA_KA)
+        return lst
 
-    yh_woba, yh_iso = hae_arvot(yh_nimet)
-    pe_woba, pe_iso = hae_arvot(pe_nimet)
+    yh_lst = hae_arvot(yh_nimet)
+    pe_lst = hae_arvot(pe_nimet)
     
-    puuttuvat_yh = max(0, 9 - len(yh_woba))
-    yh_woba.extend([LIIGA_WOBA_KA] * puuttuvat_yh)
-    yh_iso.extend([LIIGA_ISO_KA] * puuttuvat_yh)
-    yh_w_ka = sum(yh_woba) / len(yh_woba) if yh_woba else LIIGA_WOBA_KA
-    yh_i_ka = sum(yh_iso) / len(yh_iso) if yh_iso else LIIGA_ISO_KA
+    puuttuvat_yh = max(0, 9 - len(yh_lst))
+    yh_lst.extend([LIIGA_WOBA_KA] * puuttuvat_yh)
+    yh_ka = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_WOBA_KA
     
-    puuttuvat_pe = max(0, 4 - len(pe_woba))
-    pe_woba.extend([LIIGA_WOBA_KA] * puuttuvat_pe)
-    pe_iso.extend([LIIGA_ISO_KA] * puuttuvat_pe)
-    pe_w_ka = sum(pe_woba) / len(pe_woba) if pe_woba else LIIGA_WOBA_KA
-    pe_i_ka = sum(pe_iso) / len(pe_iso) if pe_iso else LIIGA_ISO_KA
+    puuttuvat_pe = max(0, 4 - len(pe_lst))
+    pe_lst.extend([LIIGA_WOBA_KA] * puuttuvat_pe)
+    pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_WOBA_KA
     
-    lopullinen_woba = round((yh_w_ka * 0.90) + (pe_w_ka * 0.10), 3)
-    lopullinen_iso = round((yh_i_ka * 0.90) + (pe_i_ka * 0.10), 3)
+    return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)
+
+
+def laske_joukkueen_iso(yh_nimet: list, pe_nimet: list) -> float:
+    """Laskee joukkueen ISO-arvon (90% aloittajat / 10% penkki) - Täydellinen kopio wOBA-logiikasta."""
+    LIIGA_ISO_KA = 0.150
+
+    def hae_arvot(nimet):
+        lst = []
+        for puhtaanimi in nimet:
+            pid = kaikki_lyojat_id.get(puhtaanimi)
+            if pid and not df_lyojat.empty and pid in df_lyojat.index:
+                v = df_lyojat.loc[pid].get("ISO_All")
+                lst.append(float(v) if pd.notna(v) else LIIGA_ISO_KA)
+            else:
+                lst.append(LIIGA_ISO_KA)
+        return lst
+
+    yh_lst = hae_arvot(yh_nimet)
+    pe_lst = hae_arvot(pe_nimet)
     
-    return lopullinen_woba, lopullinen_iso
+    puuttuvat_yh = max(0, 9 - len(yh_lst))
+    yh_lst.extend([LIIGA_ISO_KA] * puuttuvat_yh)
+    yh_ka = sum(yh_lst) / len(yh_lst) if yh_lst else LIIGA_ISO_KA
+    
+    puuttuvat_pe = max(0, 4 - len(pe_lst))
+    pe_lst.extend([LIIGA_ISO_KA] * puuttuvat_pe)
+    pe_ka = sum(pe_lst) / len(pe_lst) if pe_lst else LIIGA_ISO_KA
+    
+    return round((yh_ka * 0.90) + (pe_ka * 0.10), 3)        
+
 
 def hae_kaikki_syottajat() -> list[str]:
     kaikki = list(optiot_syottajat.keys())
@@ -575,18 +620,33 @@ with tab_analyysi:
         koti_sp_arm   = koti_sp_data.get("Katisyys", "R")
         vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
 
-        koti_woba_sp, koti_iso   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], vieras_sp_arm)
-        vieras_woba_sp, vieras_iso = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], koti_sp_arm)
-        koti_woba_bp, _   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], "All")
-        vieras_woba_bp, _ = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], "All")
+        koti_woba_sp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], vieras_sp_arm)
+        vieras_woba_sp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], koti_sp_arm)
 
+        koti_woba_bp   = laske_joukkueen_woba(inp["koti_yh"], inp["koti_pe"], "All")
+        vieras_woba_bp = laske_joukkueen_woba(inp["vieras_yh"], inp["vieras_pe"], "All")
+
+        # UUSI: LASKETAAN ISO ARVOT
+        koti_iso = laske_joukkueen_iso(inp["koti_yh"], inp["koti_pe"])
+        vieras_iso = laske_joukkueen_iso(inp["vieras_yh"], inp["vieras_pe"])
+
+        # PÄIVITETTY FUNKTIOKUTSU
         tulos = laske_todennakoisyys(
             inp["koti_koko"], inp["vieras_koko"],
-            koti_sp=koti_sp_data, koti_bp=koti_bp_data, koti_woba=koti_woba_sp,
-            vieras_sp=vieras_sp_data, vieras_bp=vieras_bp_data, vieras_woba=vieras_woba_sp,
-            koti_woba_bp=koti_woba_bp, vieras_woba_bp=vieras_woba_bp,
-            lampotila_c=inp["lampotila_c"], tuuli_ms=inp["tuuli_ms"], tuuli_suunta=inp["tuuli_suunta"],
-            koti_lyh=inp["koti_lyh"], koti_iso=koti_iso, vieras_iso=vieras_iso
+            koti_sp=koti_sp_data,
+            koti_bp=koti_bp_data,
+            koti_woba=koti_woba_sp,
+            vieras_sp=vieras_sp_data,
+            vieras_bp=vieras_bp_data,
+            vieras_woba=vieras_woba_sp,
+            koti_woba_bp=koti_woba_bp,
+            vieras_woba_bp=vieras_woba_bp,
+            lampotila_c=inp["lampotila_c"],
+            tuuli_ms=inp["tuuli_ms"],
+            tuuli_suunta=inp["tuuli_suunta"],
+            koti_lyh=inp["koti_lyh"],
+            koti_iso=koti_iso,     # UUSI
+            vieras_iso=vieras_iso  # UUSI
         )
 
         k_pct  = tulos["koti_voitto_tod"]   * 100
