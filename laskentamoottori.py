@@ -129,18 +129,18 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
     vieras_bp_kbb = 1.0 - (vieras_bp.get("Bullpen_K_BB_pct", LIIGA_TILASTO_KA) - LIIGA_TILASTO_KA)
 
     # =============================================================
-    # UUSI: YHDISTETYT KERTOIMET (80/20 Hitting, 60/40 Pitching)
+    # UUSI: YHDISTETYT KERTOIMET (70/30 Hitting, 60/40 Pitching)
     # =============================================================
     
     # Koti Hyökkäys vs Vieras SP/BP
-    koti_hyokkays_kerroin_sp = (0.80 * (koti_woba / LIIGA_WOBA_KA)) + (0.20 * koti_iso_kerroin)
-    koti_hyokkays_kerroin_bp = (0.80 * (koti_woba_bp / LIIGA_WOBA_KA)) + (0.20 * koti_iso_kerroin)
+    koti_hyokkays_kerroin_sp = (0.70 * (koti_woba / LIIGA_WOBA_KA)) + (0.30 * koti_iso_kerroin)
+    koti_hyokkays_kerroin_bp = (0.70 * (koti_woba_bp / LIIGA_WOBA_KA)) + (0.30 * koti_iso_kerroin)
     vieras_puolustus_kerroin_sp = (0.40 * (vieras_sp_xfip / LIIGA_XFIP_KA)) + (0.60 * vieras_sp_kbb)
     vieras_puolustus_kerroin_bp = (0.40 * (vieras_bp_xfip / LIIGA_XFIP_KA)) + (0.60 * vieras_bp_kbb)
 
     # Vieras Hyökkäys vs Koti SP/BP
-    vieras_hyokkays_kerroin_sp = (0.80 * (vieras_woba / LIIGA_WOBA_KA)) + (0.20 * vieras_iso_kerroin)
-    vieras_hyokkays_kerroin_bp = (0.80 * (vieras_woba_bp / LIIGA_WOBA_KA)) + (0.20 * vieras_iso_kerroin)
+    vieras_hyokkays_kerroin_sp = (0.70 * (vieras_woba / LIIGA_WOBA_KA)) + (0.30 * vieras_iso_kerroin)
+    vieras_hyokkays_kerroin_bp = (0.70 * (vieras_woba_bp / LIIGA_WOBA_KA)) + (0.30 * vieras_iso_kerroin)
     koti_puolustus_kerroin_sp = (0.40 * (koti_sp_xfip / LIIGA_XFIP_KA)) + (0.60 * koti_sp_kbb)
     koti_puolustus_kerroin_bp = (0.40 * (koti_bp_xfip / LIIGA_XFIP_KA)) + (0.60 * koti_bp_kbb)
 
@@ -168,8 +168,8 @@ def laske_todennakoisyys(koti_nimi, vieras_nimi, koti_sp, koti_bp, koti_woba, vi
     v_odotus_sp = (perus_odotus / 2) * vieras_hyokkays_kerroin_sp * koti_puolustus_kerroin_sp
     v_odotus_bp = (perus_odotus / 2) * vieras_hyokkays_kerroin_bp * koti_puolustus_kerroin_bp
     v_odotus_raaka = (v_odotus_sp * koti_sp_paino) + (v_odotus_bp * koti_bp_paino)
-    
-    k_odotus_raaka += 0.20 + (hae_momentum(koti_nimi, vieras_nimi) * 10.0)
+ 
+    k_odotus_raaka = (k_odotus_raaka * 1.035) + (hae_momentum(koti_nimi, vieras_nimi) * 2.0) 
 
     k_odotus = k_odotus_raaka * ymparisto_kerroin
     v_odotus = v_odotus_raaka * ymparisto_kerroin

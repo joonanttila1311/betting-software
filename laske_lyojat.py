@@ -18,9 +18,9 @@ DB_POLKU        = "mlb_historical.db"
 LAHDE_TAULU     = "statcast_2025"
 KOHDE_TAULU     = "lyojat_statcast"
 
-PUOLIINTUMISAIKA = 150.0    # päiviä: paino putoaa puoleen 150 pv:ssä
+PUOLIINTUMISAIKA = 90.0    # päiviä: paino putoaa puoleen 90 pv:ssä
 MIN_PA_W_KOKO    = 20.0    # minimi painotettu PA koko kaudelle (alle → poistetaan)
-MIN_PA_W_SPLIT   = 10.0    # minimi painotettu PA splitille (alle → fallback)
+MIN_PA_W_SPLIT   = 5.0    # minimi painotettu PA splitille (alle → fallback)
 MIN_PA_LISTAUS   = 50      # minimi aito PA top-10-listauksia varten
 
 WEIGHT_SPRING_TRAINING = 0.20

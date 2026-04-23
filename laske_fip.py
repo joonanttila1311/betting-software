@@ -23,9 +23,9 @@ TAULU_BULLPEN   = "bullpen_statcast"
 
 FIP_VAKIO       = 3.65     # Kalibrointivakio
 HR_FB_SUHDE     = 0.115    # MLB:n historiallinen HR/fly_ball-suhde
-PUOLIINTUMISAIKA = 150.0    # Päiviä: paino putoaa puoleen 150 pv:ssä
+PUOLIINTUMISAIKA = 90.0    # Päiviä: paino putoaa puoleen 90 pv:ssä
 MIN_IP          = 10.0     # Minimi-IP syöttäjätauluun
-MIN_IP_LISTAUS  = 20.0     # Minimi-IP top-5-listauksia varten
+MIN_IP_LISTAUS  = 10.0     # Minimi-IP top-5-listauksia varten
 MIN_IP_SPLIT    = 1.0      # Minimi painotettu IP split-laskennalle (alle → fallback)
 BULLPEN_INNING  = 6        # Bullpen alkaa tästä vuoroparista
 
