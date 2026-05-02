@@ -89,6 +89,12 @@ def main() -> None:
             person = pelaaja.get("person") or {}
             pid = person.get("id")
             pelaaja_nimi = person.get("fullName", "Tuntematon")
+            
+            # Skipataan pelaaja, jos ID puuttuu (ei pitäisi tapahtua, mutta varmistus)
+            if pid is None:
+                print(f"      ⚠️  Skipataan pelaaja {pelaaja_nimi}: ID puuttuu")
+                continue
+            
             nimi_muotoiltu = _muotoile_nimi(pelaaja_nimi)
             
             joukkueen_pelaajat.append({"id": pid, "name": nimi_muotoiltu})
@@ -100,6 +106,14 @@ def main() -> None:
         time.sleep(TAUKO_SEK)
 
     print(f"\n{'─'*62}")
+    
+    # Tarkistetaan, jäikö jonkin joukkueen rosteri tyhjäksi
+    tyhjat_joukkueet = [abbr for abbr, pelaajat in rosterit.items() if len(pelaajat) == 0]
+    if tyhjat_joukkueet:
+        print(f"⚠️  HUOM: {len(tyhjat_joukkueet)} joukkueen rosteri jäi tyhjäksi: {', '.join(tyhjat_joukkueet)}")
+        print(f"   → Aja skripti uudestaan, jos haluat täydet rosterit.")
+        print(f"{'─'*62}")
+    
     # Tallennus
     try:
         with open(OUTPUT_JSON, "w", encoding="utf-8") as f:

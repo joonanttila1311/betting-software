@@ -124,6 +124,25 @@ def yhdista_nimet(
     df_lyojat["Batter_ID"] = df_lyojat["Batter_ID"].astype(int)
     df_nimet["Batter_ID"]  = df_nimet["Batter_ID"].astype(int)
 
+    # SIIVOUS 1: Poistetaan vanhat duplikaatit lyöjädatasta (Bugi 14:n jälkivaikutus)
+    rivit_ennen_dedup = len(df_lyojat)
+    df_lyojat = df_lyojat.drop_duplicates(subset=["Batter_ID"], keep="first")
+    poistetut_lyoja_duplikaatit = rivit_ennen_dedup - len(df_lyojat)
+    if poistetut_lyoja_duplikaatit > 0:
+        print(f"   🧹 Siivottu lyöjädatasta {poistetut_lyoja_duplikaatit} duplikaattirivi(ä)")
+
+    # SIIVOUS 2: Poistetaan duplikaatit nimitaulusta (estää uusien duplikaattien synnyn)
+    rivit_ennen_nimi_dedup = len(df_nimet)
+    df_nimet = df_nimet.drop_duplicates(subset=["Batter_ID"], keep="first")
+    poistetut_nimi_duplikaatit = rivit_ennen_nimi_dedup - len(df_nimet)
+    if poistetut_nimi_duplikaatit > 0:
+        print(f"   🧹 Siivottu nimitaulusta {poistetut_nimi_duplikaatit} duplikaattirivi(ä)")
+
+    # SIIVOUS 3: Poistetaan vanha Player_Name-sarake jos se on olemassa (estää KeyError uudelleenajossa)
+    if "Player_Name" in df_lyojat.columns:
+        df_lyojat = df_lyojat.drop(columns=["Player_Name"])
+        print(f"   🧹 Poistettu vanha Player_Name-sarake ennen mergeä")
+
     yhdistetty = df_lyojat.merge(df_nimet, on="Batter_ID", how="left")
 
     # Fallback: täytetään puuttuvat nimet ID-pohjaisella merkinnällä

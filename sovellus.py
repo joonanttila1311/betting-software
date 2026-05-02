@@ -15,7 +15,7 @@ import pytz
 import statsapi
 import streamlit as st
 
-from laskentamoottori import laske_todennakoisyys, DB_POLKU, STADION_DATA
+from laskentamoottori import laske_todennakoisyys, laske_lepo_paivat, hae_rest_factor_info, apply_rest_factor, DB_POLKU, STADION_DATA
 
 # ────────────────────────────────────────────────────────────────────────────
 # SIVU-ASETUKSET
@@ -50,9 +50,9 @@ CSV_SARAKKEET = [
     "Pvm", "Koti", "Vieras",
     "Koti %", "Vieras %",
     "Koti kerroin", "Vieras kerroin",
-    "Koti SP xFIP", "Koti BP xFIP", "Koti wOBA", "Koti ISO", "Koti SP K-BB%",
+    "Koti SP xFIP", "Koti BP xFIP", "Koti wOBA", "Koti ISO", "Koti SP K-BB%", "Koti Def",
     "Koti SP IP", "Koti SP IP/GS",
-    "Vieras SP xFIP", "Vieras BP xFIP", "Vieras wOBA", "Vieras ISO", "Vieras SP K-BB%",
+    "Vieras SP xFIP", "Vieras BP xFIP", "Vieras wOBA", "Vieras ISO", "Vieras SP K-BB%", "Vieras Def",
     "Vieras SP IP", "Vieras SP IP/GS",
     "O/U odotus", "Koti odotus", "Vieras odotus",
     "Koti tulos", "Vieras tulos",
@@ -493,6 +493,11 @@ with tab_analyysi:
 
         if koti_sp_nimi in optiot_syottajat:
             sp_data = optiot_syottajat[koti_sp_nimi]
+            rest_info = hae_rest_factor_info(sp_data["Name"])
+            
+            # Lasketaan adjusted arvot
+            adj_xfip, adj_kbb = apply_rest_factor(sp_data['xFIP_All'], sp_data.get('K_BB_pct', 0.150), rest_info["rest_days"])
+            
             st.markdown(
                 f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
                     <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
@@ -502,6 +507,29 @@ with tab_analyysi:
                     <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
                 </div>""", unsafe_allow_html=True
             )
+            
+            # REST FACTOR INFO
+            last_game_str = rest_info['last_game_date'].strftime("%Y-%m-%d") if rest_info['last_game_date'] else "Ei pelejä tietokannassa"
+            rest_color = "#4bc84b" if rest_info['xfip_multiplier'] <= 1.00 else "#c8a84b" if rest_info['xfip_multiplier'] <= 1.03 else "#e87070"
+            
+            st.markdown(
+                f"""<div style='background-color:#0a1208; border:1px solid #1e3020; border-radius:5px; padding:10px; margin-bottom:10px; font-size:0.80rem; color:#7a6e5f; line-height:1.6;'>
+                    <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                        <span><b>📅 Viimeisin peli:</b> {last_game_str}</span>
+                        <span><b style='color:#a0c890;'>Lepo: {rest_info['rest_days']} pv</b></span>
+                    </div>
+                    <div style='background-color:#0d0d0d; border-left:3px solid {rest_color}; padding:8px; margin-bottom:8px; border-radius:3px;'>
+                        <div style='color:#e8e0d0; font-weight:bold; margin-bottom:4px;'>{rest_info['rest_category']}</div>
+                    </div>
+                    <div style='background-color:#0d0d0d; padding:8px; border-radius:3px; display:flex; justify-content:space-around;'>
+                        <div><span style='color:#7a6e5f;'>Kerroin</span><br><b style='color:#c8a84b;'>xFIP: {rest_info['xfip_multiplier']:.2f}x</b></div>
+                        <div><span style='color:#7a6e5f;'>Kerroin</span><br><b style='color:#4bc84b;'>K-BB: {rest_info['kbb_multiplier']:.2f}x</b></div>
+                        <div><span style='color:#7a6e5f;'>LOPULLINEN xFIP</span><br><b style='color:#e8b84b;'>{adj_xfip:.2f}</b></div>
+                        <div><span style='color:#7a6e5f;'>LOPULLINEN K-BB%</span><br><b style='color:#a0c890;'>{adj_kbb*100:.1f}%</b></div>
+                    </div>
+                </div>""", unsafe_allow_html=True
+            )
+            
             if sp_data["IP_total"] < 30.0:
                 st.markdown(
                     f"<div style='background-color:#2a1010; padding:10px; border-radius:5px; border:1px solid #c84b4b; font-size:0.85rem; color:#e87070; margin-bottom:10px; line-height:1.4;'>"
@@ -545,6 +573,11 @@ with tab_analyysi:
 
         if vieras_sp_nimi in optiot_syottajat:
             sp_data = optiot_syottajat[vieras_sp_nimi]
+            rest_info = hae_rest_factor_info(sp_data["Name"])
+            
+            # Lasketaan adjusted arvot
+            adj_xfip, adj_kbb = apply_rest_factor(sp_data['xFIP_All'], sp_data.get('K_BB_pct', 0.150), rest_info["rest_days"])
+            
             st.markdown(
                 f"""<div style='background-color:#141210; border:1px solid #2e2a24; border-radius:5px; padding:8px; margin-bottom:10px; display:flex; justify-content:space-around; text-align:center; font-size:0.85rem;'>
                     <div><span style='color:#7a6e5f;'>xFIP All</span><br><b style='color:#e8e0d0;'>{sp_data['xFIP_All']:.2f}</b></div>
@@ -554,6 +587,29 @@ with tab_analyysi:
                     <div><span style='color:#7a6e5f;'>Kokonais-IP</span><br><b style='color:#c8a84b;'>{sp_data['IP_total']:.1f}</b></div>
                 </div>""", unsafe_allow_html=True
             )
+            
+            # REST FACTOR INFO
+            last_game_str = rest_info['last_game_date'].strftime("%Y-%m-%d") if rest_info['last_game_date'] else "Ei pelejä tietokannassa"
+            rest_color = "#4bc84b" if rest_info['xfip_multiplier'] <= 1.00 else "#c8a84b" if rest_info['xfip_multiplier'] <= 1.03 else "#e87070"
+            
+            st.markdown(
+                f"""<div style='background-color:#0a1208; border:1px solid #1e3020; border-radius:5px; padding:10px; margin-bottom:10px; font-size:0.80rem; color:#7a6e5f; line-height:1.6;'>
+                    <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                        <span><b>📅 Viimeisin peli:</b> {last_game_str}</span>
+                        <span><b style='color:#a0c890;'>Lepo: {rest_info['rest_days']} pv</b></span>
+                    </div>
+                    <div style='background-color:#0d0d0d; border-left:3px solid {rest_color}; padding:8px; margin-bottom:8px; border-radius:3px;'>
+                        <div style='color:#e8e0d0; font-weight:bold; margin-bottom:4px;'>{rest_info['rest_category']}</div>
+                    </div>
+                    <div style='background-color:#0d0d0d; padding:8px; border-radius:3px; display:flex; justify-content:space-around;'>
+                        <div><span style='color:#7a6e5f;'>Kerroin</span><br><b style='color:#c8a84b;'>xFIP: {rest_info['xfip_multiplier']:.2f}x</b></div>
+                        <div><span style='color:#7a6e5f;'>Kerroin</span><br><b style='color:#4bc84b;'>K-BB: {rest_info['kbb_multiplier']:.2f}x</b></div>
+                        <div><span style='color:#7a6e5f;'>LOPULLINEN xFIP</span><br><b style='color:#e8b84b;'>{adj_xfip:.2f}</b></div>
+                        <div><span style='color:#7a6e5f;'>LOPULLINEN K-BB%</span><br><b style='color:#a0c890;'>{adj_kbb*100:.1f}%</b></div>
+                    </div>
+                </div>""", unsafe_allow_html=True
+            )
+            
             if sp_data["IP_total"] < 30.0:
                 st.markdown(
                     f"<div style='background-color:#2a1010; padding:10px; border-radius:5px; border:1px solid #c84b4b; font-size:0.85rem; color:#e87070; margin-bottom:10px; line-height:1.4;'>"
@@ -561,7 +617,7 @@ with tab_analyysi:
                     f"Tämä xFIP-lukema ei ole vakautunut ja voi olla pelkkä suonenveto. Ammattilaiset välttävät näitä kohteita (No Bet).</div>", 
                     unsafe_allow_html=True
                 )
-            elif sp_data["IP"] < 3.0:
+            if sp_data["IP"] < 3.0:
                 st.markdown(
                     f"<div style='background-color:#2a2410; padding:10px; border-radius:5px; border:1px solid #c8a84b; font-size:0.85rem; color:#e8b84b; margin-bottom:10px; line-height:1.4;'>"
                     f"⚠️ <b>VAROITUS (Opener):</b> Syöttäjän keskimääräinen IP/GS on vain <b>{sp_data['IP']:.2f}</b>. "
@@ -624,8 +680,8 @@ with tab_analyysi:
         inp = st.session_state["saved_inputs"]
         koti_sp_data   = optiot_syottajat[inp["koti_sp_nimi"]]
         vieras_sp_data = optiot_syottajat[inp["vieras_sp_nimi"]]
-        koti_bp_data   = bp_dict.get(inp["koti_lyh"],   {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "K_BB_pct": 0.150})
-        vieras_bp_data = bp_dict.get(inp["vieras_lyh"], {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "K_BB_pct": 0.150})
+        koti_bp_data  = bp_dict.get(inp["koti_lyh"],   {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "Bullpen_K_BB_pct": 0.150})
+        vieras_bp_data = bp_dict.get(inp["vieras_lyh"], {"All": 3.80, "vs_L": 3.80, "vs_R": 3.80, "Bullpen_K_BB_pct": 0.150})
 
         koti_sp_arm   = koti_sp_data.get("Katisyys", "R")
         vieras_sp_arm = vieras_sp_data.get("Katisyys", "R")
@@ -639,6 +695,10 @@ with tab_analyysi:
         # UUSI: LASKETAAN ISO ARVOT
         koti_iso = laske_joukkueen_iso(inp["koti_yh"], inp["koti_pe"])
         vieras_iso = laske_joukkueen_iso(inp["vieras_yh"], inp["vieras_pe"])
+
+        # UUSI: LASKETAAN LEPO-PÄIVÄT SYÖTTÄJILLE
+        koti_sp_rest = laske_lepo_paivat(koti_sp_data["Name"], date.today())
+        vieras_sp_rest = laske_lepo_paivat(vieras_sp_data["Name"], date.today())
 
         # PÄIVITETTY FUNKTIOKUTSU
         tulos = laske_todennakoisyys(
@@ -655,8 +715,11 @@ with tab_analyysi:
             tuuli_ms=inp["tuuli_ms"],
             tuuli_suunta=inp["tuuli_suunta"],
             koti_lyh=inp["koti_lyh"],
-            koti_iso=koti_iso,     # UUSI
-            vieras_iso=vieras_iso  # UUSI
+            vieras_lyh=inp["vieras_lyh"],
+            koti_iso=koti_iso,
+            vieras_iso=vieras_iso,
+            koti_sp_rest=koti_sp_rest,     # UUSI
+            vieras_sp_rest=vieras_sp_rest  # UUSI
         )
 
         k_pct  = tulos["koti_voitto_tod"]   * 100
@@ -665,19 +728,39 @@ with tab_analyysi:
         v_odds = 1 / tulos["vieras_voitto_tod"]
 
         st.session_state["viimeisin_tulos"] = {
-            "Pvm":            str(date.today()), "Koti": inp["koti_koko"], "Vieras": inp["vieras_koko"],
-            "Koti %":         f"{k_pct:.1f}", "Vieras %": f"{v_pct:.1f}",
-            "Koti kerroin":   f"{k_odds:.2f}", "Vieras kerroin": f"{v_odds:.2f}",
-            "Koti SP xFIP":   f"{tulos['koti_sp_dyn']:.2f}", "Koti BP xFIP": f"{tulos['koti_bp_dyn']:.2f}",
-            "Koti wOBA":      f"{tulos['koti_woba_total']:.3f}", "Koti ISO": f"{koti_iso:.3f}",
-            "Koti SP K-BB%":  f"{koti_sp_data.get('K_BB_pct', 0.15)*100:.1f}%", "Koti SP IP": f"{koti_sp_data['IP_total']:.1f}", "Koti SP IP/GS": f"{koti_sp_data['IP']:.2f}",
-            "Vieras SP xFIP": f"{tulos['vieras_sp_dyn']:.2f}", "Vieras BP xFIP": f"{tulos['vieras_bp_dyn']:.2f}",
-            "Vieras wOBA":    f"{tulos['vieras_woba_total']:.3f}", "Vieras ISO": f"{vieras_iso:.3f}",
-            "Vieras SP K-BB%":f"{vieras_sp_data.get('K_BB_pct', 0.15)*100:.1f}%", "Vieras SP IP": f"{vieras_sp_data['IP_total']:.1f}", "Vieras SP IP/GS": f"{vieras_sp_data['IP']:.2f}",
-            "O/U odotus":     f"{tulos['total_odotus']:.1f}", "Koti odotus": f"{tulos['k_odotus']:.1f}", "Vieras odotus": f"{tulos['v_odotus']:.1f}",
-            "Koti tulos":     "", "Vieras tulos": ""
+            "Pvm":            str(date.today()), 
+            "Koti":           inp["koti_koko"], 
+            "Vieras":         inp["vieras_koko"],
+            "Koti %":         f"{k_pct:.1f}", 
+            "Vieras %":       f"{v_pct:.1f}",
+            "Koti kerroin":   f"{k_odds:.2f}", 
+            "Vieras kerroin": f"{v_odds:.2f}",
+            
+            "Koti SP xFIP":   f"{tulos['koti_sp_dyn']:.2f}", 
+            "Koti BP xFIP":   f"{tulos['koti_bp_dyn']:.2f}",
+            "Koti wOBA":      f"{tulos['koti_woba_total']:.3f}", 
+            "Koti ISO":       f"{koti_iso:.3f}", 
+            "Koti SP K-BB%":  f"{tulos.get('koti_sp_kbb_adj', 0.15)*100:.1f}%",
+            "Koti Def":       f"{tulos.get('koti_def', 1.0):.3f}",  # <--- OIKEASSA PAIKASSA
+            "Koti SP IP":     f"{koti_sp_data['IP_total']:.1f}", 
+            "Koti SP IP/GS":  f"{koti_sp_data['IP']:.2f}",
+            
+            "Vieras SP xFIP": f"{tulos['vieras_sp_dyn']:.2f}", 
+            "Vieras BP xFIP": f"{tulos['vieras_bp_dyn']:.2f}",
+            "Vieras wOBA":    f"{tulos['vieras_woba_total']:.3f}", 
+            "Vieras ISO":     f"{vieras_iso:.3f}", 
+            "Vieras SP K-BB%": f"{tulos.get('vieras_sp_kbb_adj', 0.15)*100:.1f}%",
+            "Vieras Def":     f"{tulos.get('vieras_def', 1.0):.3f}", # <--- OIKEASSA PAIKASSA
+            "Vieras SP IP":   f"{vieras_sp_data['IP_total']:.1f}", 
+            "Vieras SP IP/GS":f"{vieras_sp_data['IP']:.2f}",
+            
+            "O/U odotus":     f"{tulos['total_odotus']:.1f}", 
+            "Koti odotus":    f"{tulos['k_odotus']:.1f}", 
+            "Vieras odotus":  f"{tulos['v_odotus']:.1f}",
+            "Koti tulos":     "", 
+            "Vieras tulos":   ""
         }
-
+        
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
         col1, col2, col3 = st.columns([10, 1, 10])
 
@@ -688,6 +771,7 @@ with tab_analyysi:
                 <div class="fip-badge">{koti_sp_data['Name']}</div><br>
                 <span style="color:#7a6e5f;font-size:0.85rem">
                 Hyökkäyksen wOBA: <b>{tulos['koti_woba_total']:.3f}</b><br>
+                Puolustus: <b>{tulos['koti_def']:.3f}</b><br>
                 SP xFIP: {tulos['koti_sp_dyn']:.2f} | BP xFIP: {tulos['koti_bp_dyn']:.2f}<br>
                 <b>Yhdistetty xFIP: {tulos['koti_total_xfip']:.2f}</b><br>
                 <b>Momentum-etu: {tulos['momentum_edge'] * 100:.2f} %</b></span>
@@ -703,6 +787,7 @@ with tab_analyysi:
                 <div class="fip-badge">{vieras_sp_data['Name']}</div><br>
                 <span style="color:#7a6e5f;font-size:0.85rem">
                 Hyökkäyksen wOBA: <b>{tulos['vieras_woba_total']:.3f}</b><br>
+                Puolustus: <b>{tulos['vieras_def']:.3f}</b><br>
                 SP xFIP: {tulos['vieras_sp_dyn']:.2f} | BP xFIP: {tulos['vieras_bp_dyn']:.2f}<br>
                 <b>Yhdistetty xFIP: {tulos['vieras_total_xfip']:.2f}</b><br>
                 <b>Momentum-etu: {-tulos['momentum_edge'] * 100:.2f} %</b></span>
@@ -724,23 +809,25 @@ with tab_analyysi:
         st.markdown("<p style='font-family:Bebas Neue,sans-serif;font-size:1.4rem;color:#7a6e5f;letter-spacing:0.15em;margin-bottom:0.5rem;'>LISÄTIEDOT</p>", unsafe_allow_html=True)
         det_c1, det_c2, det_c3 = st.columns([10, 1, 10])
 
-        def detail_card_html(joukkue, sp_xfip, sp_kbb, bp_xfip, woba, iso_arvo, sp_arm, stadion_nimi=None):
+        def detail_card_html(joukkue, sp_xfip, sp_kbb, bp_xfip, woba, iso_arvo, def_kerroin, sp_arm, stadion_nimi=None):
             stadion_rivi = f"<div class='detail-row'><span class='detail-key'>Stadion</span><span class='detail-val'>{stadion_nimi}</span></div>" if stadion_nimi else ""
             return (
                 f"<div class='detail-card'><div class='detail-title'>{joukkue}</div>"
                 f"<div class='detail-row'><span class='detail-key'>Aloittajan xFIP</span><span class='detail-val green'>{sp_xfip:.2f}</span></div>"
                 f"<div class='detail-row'><span class='detail-key'>Aloittajan K-BB%</span><span class='detail-val green'>{sp_kbb*100:.1f}%</span></div>"
                 f"<div class='detail-row'><span class='detail-key'>Bullpen xFIP</span><span class='detail-val green'>{bp_xfip:.2f}</span></div>"
+                # Lisätty style='color:#e74c3c;' jotta väri on punainen
+                f"<div class='detail-row'><span class='detail-key'>Puolustus (DER)</span><span class='detail-val' style='color:#e74c3c;'>{def_kerroin:.3f}</span></div>"
                 f"<div class='detail-row'><span class='detail-key'>Hyökkäys wOBA<span style='font-size:0.78em;color:#5a5450;'>&nbsp;(vs {sp_arm}HP)</span></span><span class='detail-val gold'>{woba:.3f}</span></div>"
                 f"<div class='detail-row'><span class='detail-key'>Tyrmäysvoima (ISO)</span><span class='detail-val gold'>{iso_arvo:.3f}</span></div>"
                 f"{stadion_rivi}</div>"
             )
 
         with det_c1:
-            st.markdown(detail_card_html(inp["koti_koko"], tulos["koti_sp_dyn"], koti_sp_data.get("K_BB_pct", 0.150), tulos["koti_bp_dyn"], koti_woba_sp, koti_iso, vieras_sp_arm, stadion_nimi=tulos.get("stadion_nimi")), unsafe_allow_html=True)
+            st.markdown(detail_card_html(inp["koti_koko"], tulos["koti_sp_dyn"], tulos.get("koti_sp_kbb_adj", koti_sp_data.get("K_BB_pct", 0.150)), tulos["koti_bp_dyn"], koti_woba_sp, koti_iso, tulos["koti_def"], vieras_sp_arm, stadion_nimi=tulos.get("stadion_nimi")), unsafe_allow_html=True)
 
         with det_c3:
-            st.markdown(detail_card_html(inp["vieras_koko"], tulos["vieras_sp_dyn"], vieras_sp_data.get("K_BB_pct", 0.150), tulos["vieras_bp_dyn"], vieras_woba_sp, vieras_iso, koti_sp_arm, stadion_nimi=None), unsafe_allow_html=True)
+            st.markdown(detail_card_html(inp["vieras_koko"], tulos["vieras_sp_dyn"], tulos.get("vieras_sp_kbb_adj", vieras_sp_data.get("K_BB_pct", 0.150)), tulos["vieras_bp_dyn"], vieras_woba_sp, vieras_iso, tulos["vieras_def"], koti_sp_arm, stadion_nimi=None), unsafe_allow_html=True)
 
         st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         _, save_col, _ = st.columns([3, 4, 3])
@@ -769,7 +856,7 @@ with tab_seuranta:
                 "Pvm": st.column_config.TextColumn("Pvm", width="small"), "Koti": st.column_config.TextColumn("Koti", width="medium"), "Vieras": st.column_config.TextColumn("Vieras", width="medium"),
                 "Koti %": st.column_config.TextColumn("Koti %", width="small"), "Vieras %": st.column_config.TextColumn("Vieras %", width="small"),
                 "Koti kerroin": st.column_config.TextColumn("Koti k.", width="small"), "Vieras kerroin": st.column_config.TextColumn("Vieras k.", width="small"),
-                "Koti SP xFIP": st.column_config.TextColumn("K SP", width="small"), "Koti BP xFIP": st.column_config.TextColumn("K BP", width="small"),
+                "Koti SP xFIP": st.column_config.TextColumn("K SP", width="small"), "Koti BP xFIP": st.column_config.TextColumn("K BP", width="small"),            
                 "Koti wOBA": st.column_config.TextColumn("K wOBA", width="small"), "Koti ISO": st.column_config.TextColumn("K ISO", width="small"), "Koti SP K-BB%": st.column_config.TextColumn("K K-BB%", width="small"),
                 "Koti SP IP": st.column_config.TextColumn("K IP", width="small"), "Koti SP IP/GS": st.column_config.TextColumn("K IP/GS", width="small"),
                 "Vieras SP xFIP": st.column_config.TextColumn("V SP", width="small"), "Vieras BP xFIP": st.column_config.TextColumn("V BP", width="small"),

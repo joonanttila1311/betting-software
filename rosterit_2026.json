@@ -5,10 +5,6 @@
       "name": "Civale, Aaron"
     },
     {
-      "id": 628451,
-      "name": "Ibáñez, Andy"
-    },
-    {
       "id": 642851,
       "name": "Wynns, Austin"
     },
@@ -93,6 +89,10 @@
       "name": "Springs, Jeffrey"
     },
     {
+      "id": 669270,
+      "name": "Kuhnel, Joel"
+    },
+    {
       "id": 683155,
       "name": "Estes, Joey"
     },
@@ -171,12 +171,12 @@
       "name": "Bummer, Aaron"
     },
     {
-      "id": 663586,
-      "name": "Riley, Austin"
+      "id": 683627,
+      "name": "Molina, Anthony"
     },
     {
-      "id": 689172,
-      "name": "Wisely, Brett"
+      "id": 663586,
+      "name": "Riley, Austin"
     },
     {
       "id": 693821,
@@ -197,6 +197,10 @@
     {
       "id": 800311,
       "name": "Fuentes, Didier"
+    },
+    {
+      "id": 642086,
+      "name": "Smith, Dominic"
     },
     {
       "id": 686948,
@@ -235,16 +239,16 @@
       "name": "Waldrep, Hurston"
     },
     {
+      "id": 702275,
+      "name": "Ritchie, JR"
+    },
+    {
       "id": 702910,
       "name": "Lara, Jhancarlos"
     },
     {
       "id": 641729,
       "name": "Jiménez, Joe"
-    },
-    {
-      "id": 606303,
-      "name": "Payamps, Joel"
     },
     {
       "id": 666214,
@@ -259,8 +263,12 @@
       "name": "Mateo, Jorge"
     },
     {
-      "id": 660761,
-      "name": "Suarez, José"
+      "id": 571657,
+      "name": "Farmer, Kyle"
+    },
+    {
+      "id": 527048,
+      "name": "Pérez, Martín"
     },
     {
       "id": 621566,
@@ -321,6 +329,10 @@
     {
       "id": 641755,
       "name": "Kinley, Tyler"
+    },
+    {
+      "id": 682989,
+      "name": "Mederos, Victor"
     }
   ],
   "AZ": [
@@ -393,12 +405,20 @@
       "name": "Perdomo, Geraldo"
     },
     {
-      "id": 680880,
-      "name": "Holman, Grant"
+      "id": 545121,
+      "name": "Vargas, Ildemaro"
     },
     {
       "id": 543510,
       "name": "McCann, James"
+    },
+    {
+      "id": 678232,
+      "name": "Valdez, Jesus"
+    },
+    {
+      "id": 642528,
+      "name": "Loáisiga, Jonathan"
     },
     {
       "id": 691783,
@@ -485,6 +505,10 @@
       "name": "Clarke, Taylor"
     },
     {
+      "id": 688497,
+      "name": "Rashi, Taylor"
+    },
+    {
       "id": 694374,
       "name": "Tawa, Tim"
     },
@@ -507,6 +531,10 @@
       "name": "Rutschman, Adley"
     },
     {
+      "id": 544150,
+      "name": "Suárez, Albert"
+    },
+    {
       "id": 552640,
       "name": "Kittredge, Andrew"
     },
@@ -523,10 +551,6 @@
       "name": "Young, Brandon"
     },
     {
-      "id": 682868,
-      "name": "Ramos, Bryan"
-    },
-    {
       "id": 700249,
       "name": "Povich, Cade"
     },
@@ -535,12 +559,12 @@
       "name": "Foster, Cameron"
     },
     {
-      "id": 694646,
-      "name": "McDermott, Chayce"
-    },
-    {
       "id": 605135,
       "name": "Bassitt, Chris"
+    },
+    {
+      "id": 687952,
+      "name": "Encarnacion-Strand, Christian"
     },
     {
       "id": 691723,
@@ -587,12 +611,12 @@
       "name": "Holliday, Jackson"
     },
     {
-      "id": 663804,
-      "name": "Kowar, Jackson"
-    },
-    {
       "id": 669236,
       "name": "Jackson, Jeremiah"
+    },
+    {
+      "id": 671286,
+      "name": "Rodríguez, Johnathan"
     },
     {
       "id": 676059,
@@ -613,6 +637,14 @@
     {
       "id": 665750,
       "name": "Taveras, Leody"
+    },
+    {
+      "id": 668974,
+      "name": "Handley, Maverick"
+    },
+    {
+      "id": 675919,
+      "name": "Raquet, Nick"
     },
     {
       "id": 624413,
@@ -657,6 +689,10 @@
     {
       "id": 669330,
       "name": "Wells, Tyler"
+    },
+    {
+      "id": 642215,
+      "name": "Wilson, Weston"
     },
     {
       "id": 682274,
@@ -713,6 +749,10 @@
       "name": "Coulombe, Danny"
     },
     {
+      "id": 700842,
+      "name": "Rivera, Eduardo"
+    },
+    {
       "id": 676979,
       "name": "Crochet, Garrett"
     },
@@ -727,6 +767,10 @@
     {
       "id": 643396,
       "name": "Kiner-Falefa, Isiah"
+    },
+    {
+      "id": 681252,
+      "name": "Anderson, Jack"
     },
     {
       "id": 687562,
@@ -851,10 +895,6 @@
       "name": "Brown, Ben"
     },
     {
-      "id": 701496,
-      "name": "Cowles, Ben"
-    },
-    {
       "id": 690990,
       "name": "Horton, Cade"
     },
@@ -867,8 +907,16 @@
       "name": "Kelly, Carson"
     },
     {
+      "id": 656212,
+      "name": "Barnes, Charlie"
+    },
+    {
       "id": 607067,
       "name": "Rea, Colin"
+    },
+    {
+      "id": 656686,
+      "name": "Martin, Corbin"
     },
     {
       "id": 694037,
@@ -877,6 +925,10 @@
     {
       "id": 621020,
       "name": "Swanson, Dansby"
+    },
+    {
+      "id": 680951,
+      "name": "Nikhazy, Doug"
     },
     {
       "id": 665795,
@@ -901,10 +953,6 @@
     {
       "id": 664023,
       "name": "Happ, Ian"
-    },
-    {
-      "id": 680891,
-      "name": "Neely, Jack"
     },
     {
       "id": 657097,
@@ -955,12 +1003,20 @@
       "name": "Busch, Michael"
     },
     {
+      "id": 624424,
+      "name": "Conforto, Michael"
+    },
+    {
       "id": 665804,
       "name": "Amaya, Miguel"
     },
     {
       "id": 694208,
       "name": "Ballesteros, Moisés"
+    },
+    {
+      "id": 670032,
+      "name": "Lopez, Nicky"
     },
     {
       "id": 663538,
@@ -1005,6 +1061,10 @@
     {
       "id": 592122,
       "name": "Austin, Tyler"
+    },
+    {
+      "id": 605441,
+      "name": "Ríos, Yacksel"
     }
   ],
   "CIN": [
@@ -1039,10 +1099,6 @@
     {
       "id": 695534,
       "name": "Petty, Chase"
-    },
-    {
-      "id": 687952,
-      "name": "Encarnacion-Strand, Christian"
     },
     {
       "id": 683175,
@@ -1117,12 +1173,20 @@
       "name": "McLain, Matt"
     },
     {
+      "id": 663993,
+      "name": "Lowe, Nathaniel"
+    },
+    {
       "id": 666157,
       "name": "Lodolo, Nick"
     },
     {
       "id": 682622,
       "name": "Marte, Noelvi"
+    },
+    {
+      "id": 664731,
+      "name": "Higgins, P.J."
     },
     {
       "id": 572955,
@@ -1211,6 +1275,10 @@
       "name": "DeLauter, Chase"
     },
     {
+      "id": 676051,
+      "name": "Heuer, Codi"
+    },
+    {
       "id": 670059,
       "name": "Holderman, Colin"
     },
@@ -1229,10 +1297,6 @@
     {
       "id": 681807,
       "name": "Fry, David"
-    },
-    {
-      "id": 680951,
-      "name": "Nikhazy, Doug"
     },
     {
       "id": 681870,
@@ -1261,10 +1325,6 @@
     {
       "id": 676282,
       "name": "Cantillo, Joey"
-    },
-    {
-      "id": 671286,
-      "name": "Rodríguez, Johnathan"
     },
     {
       "id": 608070,
@@ -1303,6 +1363,10 @@
       "name": "Pallette, Peyton"
     },
     {
+      "id": 656555,
+      "name": "Hoskins, Rhys"
+    },
+    {
       "id": 542888,
       "name": "Armstrong, Shawn"
     },
@@ -1323,6 +1387,10 @@
       "name": "Herrin, Tim"
     },
     {
+      "id": 683953,
+      "name": "Bazzana, Travis"
+    },
+    {
       "id": 691414,
       "name": "Gómez, Yorman"
     }
@@ -1341,6 +1409,10 @@
       "name": "Crim, Blaine"
     },
     {
+      "id": 680604,
+      "name": "Castaño, Blas"
+    },
+    {
       "id": 690924,
       "name": "Fulford, Braxton"
     },
@@ -1351,6 +1423,10 @@
     {
       "id": 686668,
       "name": "Doyle, Brenton"
+    },
+    {
+      "id": 664954,
+      "name": "Sullivan, Brett"
     },
     {
       "id": 687223,
@@ -1405,10 +1481,6 @@
       "name": "Mejia, Juan"
     },
     {
-      "id": 624522,
-      "name": "Thompson, Keegan"
-    },
-    {
       "id": 592178,
       "name": "Bryant, Kris"
     },
@@ -1419,10 +1491,6 @@
     {
       "id": 691720,
       "name": "Karros, Kyle"
-    },
-    {
-      "id": 678821,
-      "name": "Peralta, Luis"
     },
     {
       "id": 685326,
@@ -1441,10 +1509,6 @@
       "name": "Ohl, Pierson"
     },
     {
-      "id": 696275,
-      "name": "Petit, RJ"
-    },
-    {
       "id": 663372,
       "name": "Feltner, Ryan"
     },
@@ -1453,12 +1517,20 @@
       "name": "Ritter, Ryan"
     },
     {
+      "id": 671111,
+      "name": "Peralta, Sammy"
+    },
+    {
       "id": 678020,
       "name": "Halvorsen, Seth"
     },
     {
       "id": 694514,
       "name": "Thompson, Sterlin"
+    },
+    {
+      "id": 681198,
+      "name": "Rumfield, TJ"
     },
     {
       "id": 685299,
@@ -1475,6 +1547,10 @@
     {
       "id": 671289,
       "name": "Freeman, Tyler"
+    },
+    {
+      "id": 678368,
+      "name": "Bellozo, Valente"
     },
     {
       "id": 680767,
@@ -1519,6 +1595,10 @@
       "name": "Baldwin, Brooks"
     },
     {
+      "id": 663542,
+      "name": "Hudson, Bryan"
+    },
+    {
       "id": 805367,
       "name": "Meidroth, Chase"
     },
@@ -1531,10 +1611,6 @@
       "name": "Montgomery, Colson"
     },
     {
-      "id": 678554,
-      "name": "Mead, Curtis"
-    },
-    {
       "id": 689818,
       "name": "Sandlin, David"
     },
@@ -1545,6 +1621,10 @@
     {
       "id": 656537,
       "name": "Hill, Derek"
+    },
+    {
+      "id": 691011,
+      "name": "Romo, Drew"
     },
     {
       "id": 689672,
@@ -1571,8 +1651,8 @@
       "name": "Taylor, Grant"
     },
     {
-      "id": 699151,
-      "name": "Paez, Jedixson"
+      "id": 672284,
+      "name": "Kelenic, Jarred"
     },
     {
       "id": 686563,
@@ -1587,20 +1667,12 @@
       "name": "Leasure, Jordan"
     },
     {
-      "id": 686676,
-      "name": "Lee, Korey"
-    },
-    {
       "id": 681066,
       "name": "Bush, Ky"
     },
     {
       "id": 691019,
       "name": "Teel, Kyle"
-    },
-    {
-      "id": 672820,
-      "name": "Sosa, Lenyn"
     },
     {
       "id": 682668,
@@ -1619,8 +1691,20 @@
       "name": "Murakami, Munetaka"
     },
     {
+      "id": 702273,
+      "name": "Schultz, Noah"
+    },
+    {
+      "id": 674370,
+      "name": "Bido, Osvaldo"
+    },
+    {
       "id": 672860,
       "name": "Berroa, Prelander"
+    },
+    {
+      "id": 803011,
+      "name": "Antonacci, Sam"
     },
     {
       "id": 680732,
@@ -1651,8 +1735,16 @@
       "name": "Peters, Tristan"
     },
     {
+      "id": 699823,
+      "name": "Davis, Tyler"
+    },
+    {
       "id": 656457,
       "name": "Gilbert, Tyler"
+    },
+    {
+      "id": 805326,
+      "name": "Schweitzer, Tyler"
     },
     {
       "id": 682790,
@@ -1677,12 +1769,20 @@
       "name": "Hanifee, Brenan"
     },
     {
+      "id": 572143,
+      "name": "Smith, Burch"
+    },
+    {
       "id": 663554,
       "name": "Mize, Casey"
     },
     {
       "id": 690993,
       "name": "Keith, Colt"
+    },
+    {
+      "id": 657756,
+      "name": "Seabold, Connor"
     },
     {
       "id": 693307,
@@ -1695,10 +1795,6 @@
     {
       "id": 805427,
       "name": "Sommers, Drew"
-    },
-    {
-      "id": 681916,
-      "name": "Smith, Dylan"
     },
     {
       "id": 680664,
@@ -1715,6 +1811,10 @@
     {
       "id": 650402,
       "name": "Torres, Gleyber"
+    },
+    {
+      "id": 680880,
+      "name": "Holman, Grant"
     },
     {
       "id": 701678,
@@ -1763,6 +1863,10 @@
     {
       "id": 681481,
       "name": "Carpenter, Kerry"
+    },
+    {
+      "id": 805808,
+      "name": "McGonigle, Kevin"
     },
     {
       "id": 640448,
@@ -1829,6 +1933,10 @@
       "name": "Vest, Will"
     },
     {
+      "id": 692414,
+      "name": "Curet, Yoniel"
+    },
+    {
       "id": 656716,
       "name": "McKinstry, Zach"
     }
@@ -1841,6 +1949,10 @@
     {
       "id": 656986,
       "name": "Sousa, Bennett"
+    },
+    {
+      "id": 669699,
+      "name": "Shewmake, Braden"
     },
     {
       "id": 687888,
@@ -1867,12 +1979,16 @@
       "name": "Correa, Carlos"
     },
     {
-      "id": 663967,
-      "name": "Salazar, César"
+      "id": 543877,
+      "name": "Vázquez, Christian"
     },
     {
       "id": 572233,
       "name": "Walker, Christian"
+    },
+    {
+      "id": 675989,
+      "name": "Bolton, Cody"
     },
     {
       "id": 676467,
@@ -1881,6 +1997,14 @@
     {
       "id": 664299,
       "name": "Javier, Cristian"
+    },
+    {
+      "id": 669288,
+      "name": "Johnson, Daniel"
+    },
+    {
+      "id": 687957,
+      "name": "Harris, Dustin"
     },
     {
       "id": 660853,
@@ -1951,8 +2075,8 @@
       "name": "Allen, Nick"
     },
     {
-      "id": 682610,
-      "name": "Muñoz, Roddery"
+      "id": 663567,
+      "name": "Lambert, Peter"
     },
     {
       "id": 669854,
@@ -1977,6 +2101,10 @@
     {
       "id": 837227,
       "name": "Imai, Tatsuya"
+    },
+    {
+      "id": 666211,
+      "name": "Trammell, Taylor"
     },
     {
       "id": 673237,
@@ -2033,8 +2161,12 @@
       "name": "Lynch IV, Daniel"
     },
     {
-      "id": 671221,
-      "name": "Waters, Drew"
+      "id": 669212,
+      "name": "Morgan, Eli"
+    },
+    {
+      "id": 553869,
+      "name": "Díaz, Elias"
     },
     {
       "id": 672021,
@@ -2163,6 +2295,10 @@
   ],
   "LAA": [
     {
+      "id": 624428,
+      "name": "Frazier, Adam"
+    },
+    {
       "id": 666201,
       "name": "Manoah, Alek"
     },
@@ -2203,6 +2339,10 @@
       "name": "Pomeranz, Drew"
     },
     {
+      "id": 691946,
+      "name": "Klassen, George"
+    },
+    {
       "id": 680570,
       "name": "Rodriguez, Grayson"
     },
@@ -2211,16 +2351,8 @@
       "name": "Kochanowicz, Jack"
     },
     {
-      "id": 682144,
-      "name": "Sandridge, Jayvien"
-    },
-    {
       "id": 666176,
       "name": "Adell, Jo"
-    },
-    {
-      "id": 605447,
-      "name": "Romano, Jordan"
     },
     {
       "id": 624585,
@@ -2263,6 +2395,10 @@
       "name": "Farris, Mitch"
     },
     {
+      "id": 680704,
+      "name": "Sandlin, Nick"
+    },
+    {
       "id": 694384,
       "name": "Schanuel, Nolan"
     },
@@ -2295,6 +2431,10 @@
       "name": "Bachman, Sam"
     },
     {
+      "id": 665861,
+      "name": "Rivero, Sebastián"
+    },
+    {
       "id": 518595,
       "name": "d'Arnaud, Travis"
     },
@@ -2303,12 +2443,8 @@
       "name": "Grissom, Vaughn"
     },
     {
-      "id": 682989,
-      "name": "Mederos, Victor"
-    },
-    {
       "id": 700712,
-      "name": "Urena, Walbert"
+      "name": "Ureña, Walbert"
     },
     {
       "id": 660162,
@@ -2365,6 +2501,10 @@
       "name": "Graterol, Brusdar"
     },
     {
+      "id": 694646,
+      "name": "McDermott, Chayce"
+    },
+    {
       "id": 687221,
       "name": "Rushing, Dalton"
     },
@@ -2403,6 +2543,14 @@
     {
       "id": 676263,
       "name": "Dreyer, Jack"
+    },
+    {
+      "id": 664776,
+      "name": "Cousins, Jake"
+    },
+    {
+      "id": 671109,
+      "name": "Eder, Jake"
     },
     {
       "id": 680736,
@@ -2475,6 +2623,10 @@
     {
       "id": 669242,
       "name": "Edman, Tommy"
+    },
+    {
+      "id": 666149,
+      "name": "Fitzgerald, Tyler"
     },
     {
       "id": 607192,
@@ -2555,10 +2707,6 @@
       "name": "Pérez, Eury"
     },
     {
-      "id": 670183,
-      "name": "Acton, Garrett"
-    },
-    {
       "id": 688363,
       "name": "Pauley, Graham"
     },
@@ -2605,6 +2753,10 @@
     {
       "id": 669199,
       "name": "Bachar, Lake"
+    },
+    {
+      "id": 677870,
+      "name": "Jiménez, Leo"
     },
     {
       "id": 689414,
@@ -2697,6 +2849,10 @@
       "name": "Woodruff, Brandon"
     },
     {
+      "id": 702153,
+      "name": "Fitzpatrick, Brian"
+    },
+    {
       "id": 668930,
       "name": "Turang, Brice"
     },
@@ -2715,6 +2871,10 @@
     {
       "id": 689441,
       "name": "Crow, Coleman"
+    },
+    {
+      "id": 806198,
+      "name": "Pratt, Cooper"
     },
     {
       "id": 684974,
@@ -2745,6 +2905,10 @@
       "name": "Anderson, Grant"
     },
     {
+      "id": 675659,
+      "name": "Jones, Greg"
+    },
+    {
       "id": 694192,
       "name": "Chourio, Jackson"
     },
@@ -2755,6 +2919,10 @@
     {
       "id": 641343,
       "name": "Bauers, Jake"
+    },
+    {
+      "id": 663765,
+      "name": "Woodford, Jake"
     },
     {
       "id": 657649,
@@ -2797,16 +2965,8 @@
       "name": "Frelick, Sal"
     },
     {
-      "id": 671111,
-      "name": "Peralta, Sammy"
-    },
-    {
       "id": 675660,
       "name": "Drohan, Shane"
-    },
-    {
-      "id": 672642,
-      "name": "Berroa, Steward"
     },
     {
       "id": 656730,
@@ -2825,10 +2985,6 @@
     {
       "id": 702176,
       "name": "Roden, Alan"
-    },
-    {
-      "id": 656577,
-      "name": "Jackson, Alex"
     },
     {
       "id": 702193,
@@ -2855,6 +3011,14 @@
       "name": "Buxton, Byron"
     },
     {
+      "id": 685005,
+      "name": "Roa, Christian"
+    },
+    {
+      "id": 689520,
+      "name": "Laweryson, Cody"
+    },
+    {
       "id": 663485,
       "name": "Sands, Cole"
     },
@@ -2875,12 +3039,12 @@
       "name": "Orze, Eric"
     },
     {
-      "id": 676572,
-      "name": "Wagaman, Eric"
-    },
-    {
       "id": 694224,
       "name": "Gonzalez, Gabriel"
+    },
+    {
+      "id": 670183,
+      "name": "Acton, Garrett"
     },
     {
       "id": 694230,
@@ -2917,6 +3081,10 @@
     {
       "id": 681892,
       "name": "Funderburk, Kody"
+    },
+    {
+      "id": 472610,
+      "name": "García, Luis"
     },
     {
       "id": 807712,
@@ -2979,10 +3147,6 @@
       "name": "Caratini, Victor"
     },
     {
-      "id": 687849,
-      "name": "Kent, Zak"
-    },
-    {
       "id": 805673,
       "name": "Matthews, Zebby"
     }
@@ -2997,12 +3161,16 @@
       "name": "Carrillo, Alex"
     },
     {
-      "id": 681810,
-      "name": "Warren, Austin"
+      "id": 628451,
+      "name": "Ibáñez, Andy"
     },
     {
-      "id": 666163,
-      "name": "Rortvedt, Ben"
+      "id": 596103,
+      "name": "Slater, Austin"
+    },
+    {
+      "id": 681810,
+      "name": "Warren, Austin"
     },
     {
       "id": 666182,
@@ -3017,8 +3185,8 @@
       "name": "Raley, Brooks"
     },
     {
-      "id": 663542,
-      "name": "Hudson, Bryan"
+      "id": 701807,
+      "name": "Benge, Carson"
     },
     {
       "id": 681035,
@@ -3027,6 +3195,10 @@
     {
       "id": 605280,
       "name": "Holmes, Clay"
+    },
+    {
+      "id": 518886,
+      "name": "Kimbrel, Craig"
     },
     {
       "id": 656849,
@@ -3043,6 +3215,10 @@
     {
       "id": 697811,
       "name": "Ross, Dylan"
+    },
+    {
+      "id": 676572,
+      "name": "Wagaman, Eric"
     },
     {
       "id": 682626,
@@ -3097,10 +3273,6 @@
       "name": "Senga, Kodai"
     },
     {
-      "id": 472610,
-      "name": "García, Luis"
-    },
-    {
       "id": 673357,
       "name": "Robert Jr., Luis"
     },
@@ -3137,10 +3309,6 @@
       "name": "Garrett, Reed"
     },
     {
-      "id": 663992,
-      "name": "Lovelady, Richard"
-    },
-    {
       "id": 677595,
       "name": "Mauricio, Ronny"
     },
@@ -3159,10 +3327,6 @@
     {
       "id": 621438,
       "name": "Taylor, Tyrone"
-    },
-    {
-      "id": 660644,
-      "name": "Bruján, Vidal"
     }
   ],
   "NYY": [
@@ -3193,10 +3357,6 @@
     {
       "id": 687396,
       "name": "Headrick, Brent"
-    },
-    {
-      "id": 685464,
-      "name": "Winquest, Cade"
     },
     {
       "id": 693645,
@@ -3259,10 +3419,6 @@
       "name": "Chisholm Jr., Jazz"
     },
     {
-      "id": 678391,
-      "name": "Vivas, Jorbit"
-    },
-    {
       "id": 676609,
       "name": "Caballero, José"
     },
@@ -3281,10 +3437,6 @@
     {
       "id": 680474,
       "name": "Schuemann, Max"
-    },
-    {
-      "id": 674370,
-      "name": "Bido, Osvaldo"
     },
     {
       "id": 665828,
@@ -3377,12 +3529,24 @@
       "name": "Shugart, Chase"
     },
     {
+      "id": 686551,
+      "name": "Cairo, Christian"
+    },
+    {
       "id": 650911,
       "name": "Sánchez, Cristopher"
     },
     {
+      "id": 664238,
+      "name": "Moore, Dylan"
+    },
+    {
       "id": 624641,
       "name": "Sosa, Edmundo"
+    },
+    {
+      "id": 694025,
+      "name": "Reyes, Felix"
     },
     {
       "id": 687282,
@@ -3417,6 +3581,10 @@
       "name": "Alvarado, José"
     },
     {
+      "id": 702222,
+      "name": "Crawford, Justin"
+    },
+    {
       "id": 679775,
       "name": "Backhus, Kyle"
     },
@@ -3445,10 +3613,6 @@
       "name": "Kemp, Otto"
     },
     {
-      "id": 694175,
-      "name": "León, Pedro"
-    },
-    {
       "id": 665561,
       "name": "Marchán, Rafael"
     },
@@ -3457,24 +3621,24 @@
       "name": "Johnson, Seth"
     },
     {
-      "id": 592836,
-      "name": "Walker, Taijuan"
+      "id": 672642,
+      "name": "Berroa, Steward"
     },
     {
       "id": 621383,
       "name": "Banks, Tanner"
     },
     {
+      "id": 641835,
+      "name": "Mayza, Tim"
+    },
+    {
       "id": 607208,
       "name": "Turner, Trea"
     },
     {
-      "id": 692414,
-      "name": "Curet, Yoniel"
-    },
-    {
-      "id": 685112,
-      "name": "McCambley, Zach"
+      "id": 670950,
+      "name": "Richards, Trevor"
     },
     {
       "id": 647315,
@@ -3523,16 +3687,16 @@
       "name": "Mlodzinski, Carmen"
     },
     {
+      "id": 606965,
+      "name": "Devenski, Chris"
+    },
+    {
       "id": 642701,
       "name": "Santana, Dennis"
     },
     {
       "id": 682848,
       "name": "Rodríguez, Endy"
-    },
-    {
-      "id": 665839,
-      "name": "Valdez, Enmanuel"
     },
     {
       "id": 699013,
@@ -3591,6 +3755,10 @@
       "name": "Lawrence, Justin"
     },
     {
+      "id": 804606,
+      "name": "Griffin, Konnor"
+    },
+    {
       "id": 542303,
       "name": "Ozuna, Marcell"
     },
@@ -3621,10 +3789,6 @@
     {
       "id": 804668,
       "name": "Flores Jr., Rafael"
-    },
-    {
-      "id": 689877,
-      "name": "Harbin, Ryan"
     },
     {
       "id": 656811,
@@ -3671,10 +3835,6 @@
     {
       "id": 669369,
       "name": "Johnson, Bryce"
-    },
-    {
-      "id": 670897,
-      "name": "Acosta, Daison"
     },
     {
       "id": 688158,
@@ -3737,6 +3897,10 @@
       "name": "Hart, Kyle"
     },
     {
+      "id": 608337,
+      "name": "Giolito, Lucas"
+    },
+    {
       "id": 669134,
       "name": "Campusano, Luis"
     },
@@ -3797,6 +3961,14 @@
       "name": "Adcock, Ty"
     },
     {
+      "id": 664034,
+      "name": "France, Ty"
+    },
+    {
+      "id": 621111,
+      "name": "Buehler, Walker"
+    },
+    {
       "id": 593974,
       "name": "Peralta, Wandy"
     },
@@ -3807,10 +3979,6 @@
     {
       "id": 593428,
       "name": "Bogaerts, Xander"
-    },
-    {
-      "id": 506433,
-      "name": "Darvish, Yu"
     },
     {
       "id": 673513,
@@ -3825,14 +3993,6 @@
     {
       "id": 662253,
       "name": "Muñoz, Andrés"
-    },
-    {
-      "id": 668800,
-      "name": "Knizner, Andrew"
-    },
-    {
-      "id": 680604,
-      "name": "Castaño, Blas"
     },
     {
       "id": 680977,
@@ -3855,16 +4015,20 @@
       "name": "Vargas, Carlos"
     },
     {
-      "id": 668984,
-      "name": "Legumina, Casey"
-    },
-    {
       "id": 677961,
       "name": "Wilcox, Cole"
     },
     {
       "id": 702284,
       "name": "Young, Cole"
+    },
+    {
+      "id": 806068,
+      "name": "Emerson, Colt"
+    },
+    {
+      "id": 656582,
+      "name": "Joe, Connor"
     },
     {
       "id": 681867,
@@ -3947,6 +4111,14 @@
       "name": "Mastrobuoni, Miles"
     },
     {
+      "id": 641598,
+      "name": "Garver, Mitch"
+    },
+    {
+      "id": 621550,
+      "name": "Wisdom, Patrick"
+    },
+    {
       "id": 668227,
       "name": "Arozarena, Randy"
     },
@@ -3967,16 +4139,16 @@
       "name": "Bliss, Ryan"
     },
     {
-      "id": 702795,
-      "name": "Loutos, Ryan"
-    },
-    {
       "id": 700187,
       "name": "Taylor, Troy"
     },
     {
       "id": 645302,
       "name": "Robles, Victor"
+    },
+    {
+      "id": 669717,
+      "name": "Wilson, Will"
     },
     {
       "id": 691172,
@@ -3995,6 +4167,10 @@
     {
       "id": 805811,
       "name": "Eldridge, Bryce"
+    },
+    {
+      "id": 668873,
+      "name": "Kilian, Caleb"
     },
     {
       "id": 693313,
@@ -4021,12 +4197,24 @@
       "name": "Gilbert, Drew"
     },
     {
+      "id": 681916,
+      "name": "Smith, Dylan"
+    },
+    {
+      "id": 606992,
+      "name": "Haase, Eric"
+    },
+    {
       "id": 669062,
       "name": "Miller, Erik"
     },
     {
       "id": 687529,
       "name": "McCray, Grant"
+    },
+    {
+      "id": 666619,
+      "name": "Santos, Gregory"
     },
     {
       "id": 664056,
@@ -4043,6 +4231,10 @@
     {
       "id": 664141,
       "name": "Brubaker, JT"
+    },
+    {
+      "id": 666931,
+      "name": "Oliva, Jared"
     },
     {
       "id": 671345,
@@ -4083,10 +4275,6 @@
     {
       "id": 650333,
       "name": "Arraez, Luis"
-    },
-    {
-      "id": 682641,
-      "name": "Matos, Luis"
     },
     {
       "id": 656305,
@@ -4143,10 +4331,6 @@
     {
       "id": 663941,
       "name": "Beck, Tristan"
-    },
-    {
-      "id": 666149,
-      "name": "Fitzgerald, Tyler"
     },
     {
       "id": 641816,
@@ -4211,6 +4395,14 @@
       "name": "Herrera, Iván"
     },
     {
+      "id": 802139,
+      "name": "Wetherholt, JJ"
+    },
+    {
+      "id": 694363,
+      "name": "Shuster, Jared"
+    },
+    {
       "id": 699625,
       "name": "Crooks, Jimmy"
     },
@@ -4269,10 +4461,6 @@
     {
       "id": 701675,
       "name": "Church, Nathan"
-    },
-    {
-      "id": 675919,
-      "name": "Raquet, Nick"
     },
     {
       "id": 669357,
@@ -4337,8 +4525,16 @@
       "name": "Baker, Bryan"
     },
     {
+      "id": 592155,
+      "name": "Booser, Cam"
+    },
+    {
       "id": 700246,
       "name": "Williams, Carson"
+    },
+    {
+      "id": 668984,
+      "name": "Legumina, Casey"
     },
     {
       "id": 656775,
@@ -4441,6 +4637,10 @@
       "name": "Englert, Mason"
     },
     {
+      "id": 675627,
+      "name": "Grove, Michael"
+    },
+    {
       "id": 663743,
       "name": "Fortes, Nick"
     },
@@ -4477,6 +4677,10 @@
       "name": "Walls, Taylor"
     },
     {
+      "id": 694680,
+      "name": "Martin, Trevor"
+    },
+    {
       "id": 683748,
       "name": "Mesa Jr., Victor"
     },
@@ -4495,8 +4699,16 @@
       "name": "Osuna, Alejandro"
     },
     {
+      "id": 457705,
+      "name": "McCutchen, Andrew"
+    },
+    {
       "id": 607043,
       "name": "Nimmo, Brandon"
+    },
+    {
+      "id": 615698,
+      "name": "Quantrill, Cal"
     },
     {
       "id": 691945,
@@ -4523,10 +4735,6 @@
       "name": "Seager, Corey"
     },
     {
-      "id": 680118,
-      "name": "Blanco, Dairon"
-    },
-    {
       "id": 643376,
       "name": "Jansen, Danny"
     },
@@ -4545,6 +4753,10 @@
     {
       "id": 677649,
       "name": "Duran, Ezequiel"
+    },
+    {
+      "id": 686560,
+      "name": "Collyer, Gavin"
     },
     {
       "id": 683004,
@@ -4615,10 +4827,6 @@
       "name": "Gore, MacKenzie"
     },
     {
-      "id": 687847,
-      "name": "Church, Marc"
-    },
-    {
       "id": 680737,
       "name": "Helman, Michael"
     },
@@ -4631,6 +4839,10 @@
       "name": "Eovaldi, Nathan"
     },
     {
+      "id": 682608,
+      "name": "Gray, Peyton"
+    },
+    {
       "id": 676395,
       "name": "Garcia, Robert"
     },
@@ -4641,10 +4853,6 @@
     {
       "id": 641302,
       "name": "Alexander, Tyler"
-    },
-    {
-      "id": 680862,
-      "name": "MacIver, Willie"
     },
     {
       "id": 692437,
@@ -4671,10 +4879,6 @@
     {
       "id": 665926,
       "name": "Giménez, Andrés"
-    },
-    {
-      "id": 682785,
-      "name": "Bastardo, Angel"
     },
     {
       "id": 623993,
@@ -4741,6 +4945,10 @@
       "name": "Sánchez, Jesús"
     },
     {
+      "id": 573009,
+      "name": "Mantiply, Joe"
+    },
+    {
       "id": 682729,
       "name": "Clase, Jonatan"
     },
@@ -4761,8 +4969,8 @@
       "name": "Estrada, Lazaro"
     },
     {
-      "id": 677870,
-      "name": "Jiménez, Leo"
+      "id": 672820,
+      "name": "Sosa, Lenyn"
     },
     {
       "id": 686973,
@@ -4783,6 +4991,10 @@
     {
       "id": 664770,
       "name": "Lukes, Nathan"
+    },
+    {
+      "id": 571578,
+      "name": "Corbin, Patrick"
     },
     {
       "id": 694357,
@@ -4817,8 +5029,16 @@
       "name": "Guerrero Jr., Vladimir"
     },
     {
+      "id": 680862,
+      "name": "MacIver, Willie"
+    },
+    {
       "id": 554340,
       "name": "García, Yimi"
+    },
+    {
+      "id": 682818,
+      "name": "Pinango, Yohendrick"
     }
   ],
   "WSH": [
@@ -4859,12 +5079,20 @@
       "name": "Franklin, Christian"
     },
     {
+      "id": 672335,
+      "name": "Pérez, Cionel"
+    },
+    {
       "id": 690925,
       "name": "Beeter, Clayton"
     },
     {
       "id": 669371,
       "name": "Henry, Cole"
+    },
+    {
+      "id": 678554,
+      "name": "Mead, Curtis"
     },
     {
       "id": 687792,
@@ -4887,10 +5115,6 @@
       "name": "Griffin, Foster"
     },
     {
-      "id": 676046,
-      "name": "McGarry, Griff"
-    },
-    {
       "id": 681402,
       "name": "Varland, Gus"
     },
@@ -4907,10 +5131,6 @@
       "name": "Young, Jacob"
     },
     {
-      "id": 671109,
-      "name": "Eder, Jake"
-    },
-    {
       "id": 663623,
       "name": "Irvin, Jake"
     },
@@ -4921,6 +5141,10 @@
     {
       "id": 686894,
       "name": "Wiemer, Joey"
+    },
+    {
+      "id": 678391,
+      "name": "Vivas, Jorbit"
     },
     {
       "id": 677588,
@@ -4973,6 +5197,10 @@
     {
       "id": 687606,
       "name": "Schultz, Paxton"
+    },
+    {
+      "id": 663992,
+      "name": "Lovelady, Richard"
     },
     {
       "id": 683000,

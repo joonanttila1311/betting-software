@@ -127,16 +127,19 @@ if __name__ == "__main__":
     viimeisin_kannassa = hae_viimeisin_paivamaara(DB_POLKU, TAULU)
 
     if viimeisin_kannassa:
-        haku_alku = viimeisin_kannassa + timedelta(days=1)
+        # Bugi 1:n korjaus: aloitetaan haku 2 päivää aiemmin kuin viimeisin kannan päivämäärä.
+        # Näin Statcastin myöhästyneet päivitykset ja vajaat päivät täydentyvät automaattisesti.
+        haku_alku = viimeisin_kannassa - timedelta(days=2)
         tallennus_tapa = "append"
         print(f"  📌 Tietokannassa on dataa päivään {viimeisin_kannassa} asti.")
+        print(f"  🔄 Haetaan 2 päivän overlap viimeisimmästä päivästä taaksepäin (täydentyy automaattisesti).")
         
         if haku_alku > tanaan:
             print("  ✅ Data on jo täysin ajan tasalla! Uutta haettavaa ei ole.")
             print(f"{viiva}\n")
             exit()
             
-        print(f"  🚀 Haetaan puuttuvat päivät: {haku_alku} – {tanaan}")
+        print(f"  🚀 Haetaan päivät: {haku_alku} – {tanaan}")
     else:
         haku_alku = OLETUS_ALKU
         tallennus_tapa = "replace"
@@ -176,8 +179,9 @@ if __name__ == "__main__":
         print(f"\n🔗 Yhdistetään {len(onnistuneet)} datapakettia ...")
         yhdistetty = pd.concat(onnistuneet, ignore_index=True)
 
+        # SIIVOUS 1: Poistetaan duplikaatit haun sisältä (sama kuin ennen)
         ennen = len(yhdistetty)
-        if "pitch_number" in yhdistetty.columns and "game_pk" in yhdistetty.columns:
+        if all(s in yhdistetty.columns for s in ["game_pk", "at_bat_number", "pitch_number"]):
             yhdistetty = yhdistetty.drop_duplicates(
                 subset=["game_pk", "at_bat_number", "pitch_number"]
             )
@@ -185,6 +189,47 @@ if __name__ == "__main__":
         if ennen != jalkeen:
             print(f"   → Poistettu {ennen - jalkeen:,} duplikaattia haun sisältä.")
 
-        tallenna_kantaan(yhdistetty, DB_POLKU, TAULU, tallennus_tapa)
+        # SIIVOUS 2 (Bugi 2:n korjaus): Suodatetaan pois rivit, jotka ovat jo kannassa.
+        # Tämä on välttämätön, koska 2 päivän overlap tuottaa muuten duplikaatteja.
+        # Vain append-modessa, koska replace-modessa kanta korvataan kokonaan uudella datalla.
+        if tallennus_tapa == "append":
+            print(f"\n🔍 Tarkistetaan kannassa olevat avaimet duplikaattien välttämiseksi ...")
+            try:
+                yhteys = sqlite3.connect(DB_POLKU)
+                olemassa_olevat = pd.read_sql_query(
+                    f"SELECT game_pk, at_bat_number, pitch_number FROM {TAULU}",
+                    yhteys
+                )
+                yhteys.close()
+                
+                ennen_kanta_dedup = len(yhdistetty)
+                
+                # Yhdistetään uusi data ja olemassa olevat avaimet, merkitään uudet rivit
+                # indicator='_merge' lisää sarakkeen joka kertoo onko rivi vain vasemmalla (uusi),
+                # vain oikealla (vain kannassa) vai molemmilla (duplikaatti)
+                yhdistetty = yhdistetty.merge(
+                    olemassa_olevat,
+                    on=["game_pk", "at_bat_number", "pitch_number"],
+                    how="left",
+                    indicator=True
+                )
+                # Pidetään vain rivit, jotka eivät ole jo kannassa
+                yhdistetty = yhdistetty[yhdistetty["_merge"] == "left_only"].drop(columns=["_merge"])
+                
+                jalkeen_kanta_dedup = len(yhdistetty)
+                kannassa_jo = ennen_kanta_dedup - jalkeen_kanta_dedup
+                if kannassa_jo > 0:
+                    print(f"   → Suodatettu pois {kannassa_jo:,} riviä jotka ovat jo kannassa.")
+                else:
+                    print(f"   → Ei kannassa olevia duplikaatteja.")
+                
+            except Exception as e:
+                print(f"   ⚠️  Avainten tarkistus epäonnistui: {e}")
+                print(f"   → Tallennetaan ilman kannan duplikaattitarkistusta.")
 
-        print("\n🎉 Päivitys onnistui!")
+        # Tarkistetaan että jäi vielä jotain tallennettavaa
+        if len(yhdistetty) == 0:
+            print(f"\n✅ Ei uutta tallennettavaa – kaikki rivit olivat jo kannassa.")
+        else:
+            tallenna_kantaan(yhdistetty, DB_POLKU, TAULU, tallennus_tapa)
+            print("\n🎉 Päivitys onnistui!")
